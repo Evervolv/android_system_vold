@@ -635,4 +635,3 @@ int Volume::initializeMbr(const char *deviceNode) {
 
     return rc;
 }
-
