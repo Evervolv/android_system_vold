@@ -143,7 +143,7 @@ int Fat::doMount(const char *fsPath, const char *mountPoint,
     char mountData[255];
     const char *mntFSType;
 
-    flags = MS_NODEV | MS_NOSUID | MS_DIRSYNC;
+    flags = MS_NODEV | MS_NOSUID | MS_DIRSYNC | MS_NOATIME | MS_NODIRATIME;
 
     flags |= (executable ? 0 : MS_NOEXEC);
     flags |= (ro ? MS_RDONLY : 0);
