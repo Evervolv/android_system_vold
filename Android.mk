@@ -60,6 +60,10 @@ LOCAL_C_INCLUDES := $(common_c_includes)
 
 LOCAL_CFLAGS := -Werror=format
 
+ifeq ($(BOARD_VOLD_EMMC_SHARES_DEV_MAJOR), true)
+LOCAL_CFLAGS += -DVOLD_EMMC_SHARES_DEV_MAJOR
+endif
+
 LOCAL_SHARED_LIBRARIES := $(common_shared_libraries)
 
 LOCAL_STATIC_LIBRARIES := libfs_mgr
