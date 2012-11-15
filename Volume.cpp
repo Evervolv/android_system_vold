@@ -641,7 +641,6 @@ int Volume::doUnmount(const char *path, bool force) {
 
 int Volume::unmountVol(bool force, bool revert) {
     int i, rc;
-    const char* externalStorage = getenv("EXTERNAL_STORAGE");
 
     if (getState() != Volume::State_Mounted) {
         SLOGE("Volume %s unmount request when not mounted", getLabel());
@@ -659,31 +658,6 @@ int Volume::unmountVol(bool force, bool revert) {
     if (doUnmount(Volume::SEC_ASECDIR_EXT, force)) {
         SLOGE("Failed to remove bindmount on %s (%s)", SEC_ASECDIR_EXT, strerror(errno));
         goto fail_remount_tmpfs;
-    }
-
-    protectFromAutorunStupidity();
-
-    /* Undo createBindMounts(), which is only called for primary storage */
-    if (isPrimaryStorage()) {
-        /*
-         * Unmount the tmpfs which was obscuring the asec image directory
-         * from non root users
-         */
-
-        if (doUnmount(Volume::SEC_STG_SECIMGDIR, force)) {
-            SLOGE("Failed to unmount tmpfs on %s (%s)", SEC_STG_SECIMGDIR, strerror(errno));
-            goto fail_republish;
-        }
-
-        /*
-         * Remove the bindmount we were using to keep a reference to
-         * the previously obscured directory.
-         */
-
-        if (doUnmount(Volume::SEC_ASECDIR_EXT, force)) {
-            SLOGE("Failed to remove bindmount on %s (%s)", SEC_ASECDIR_EXT, strerror(errno));
-            goto fail_remount_tmpfs;
-        }
     }
 
     /*
