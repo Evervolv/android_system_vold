@@ -107,7 +107,6 @@ private:
     int mountAsecExternal();
     int doUnmount(const char *path, bool force);
     void protectFromAutorunStupidity();
-    int getFatVolumeId(const char *path);
 };
 
 typedef android::List<Volume *> VolumeCollection;
