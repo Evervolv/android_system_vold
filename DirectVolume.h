@@ -42,7 +42,6 @@ protected:
     int            mDiskNumParts;
     unsigned int   mPendingPartMap;
     int            mIsDecrypted;
-    int            mFlags;
 
 #ifdef VOLD_DISC_HAS_MULTIPLE_MAJORS
 private:
@@ -75,7 +74,6 @@ protected:
     int updateDeviceInfo(char *new_path, int new_major, int new_minor);
     virtual void revertDeviceInfo(void);
     int isDecrypted() { return mIsDecrypted; }
-    int getFlags() { return mFlags; }
 
 private:
     void handleDiskAdded(const char *devpath, NetlinkEvent *evt);
