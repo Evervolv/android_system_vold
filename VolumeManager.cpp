@@ -1755,7 +1755,7 @@ int VolumeManager::getDirectVolumeList(struct volume_info *vol_list) {
     return 0;
 }
 
-int VolumeManager::unmountVolume(const char *label, bool force, bool revert) {
+int VolumeManager::unmountVolume(const char *label, bool force, bool revert, bool detach) {
     Volume *v = lookupVolume(label);
 
     if (!v) {
@@ -1777,7 +1777,7 @@ int VolumeManager::unmountVolume(const char *label, bool force, bool revert) {
 
     cleanupAsec(v, force);
 
-    return v->unmountVol(force, revert);
+    return v->unmountVol(force, revert, detach);
 }
 
 extern "C" int vold_unmountAllAsecs(void) {
