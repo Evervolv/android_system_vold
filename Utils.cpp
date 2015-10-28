@@ -557,6 +557,10 @@ bool IsFilesystemSupported(const std::string& fsType) {
         PLOG(ERROR) << "Failed to read supported filesystems";
         return false;
     }
+
+    /* fuse filesystems */
+    supported.append("fuse\tntfs\n");
+
     return supported.find(fsType + "\n") != std::string::npos;
 }
 
