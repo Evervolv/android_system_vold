@@ -137,6 +137,7 @@ cc_library_static {
         "fs/Exfat.cpp",
         "fs/Ext4.cpp",
         "fs/F2fs.cpp",
+        "fs/Ntfs.cpp",
         "fs/Vfat.cpp",
         "model/Disk.cpp",
         "model/EmulatedVolume.cpp",
