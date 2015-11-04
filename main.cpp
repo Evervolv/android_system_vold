@@ -237,13 +237,9 @@ static int process_config(VolumeManager* vm, bool* has_adoptable, bool* has_quot
         }
 
         if (fs_mgr_is_voldmanaged(rec)) {
-            if (fs_mgr_is_nonremovable(rec)) {
-                LOG(WARNING) << "nonremovable no longer supported; ignoring volume";
-                continue;
-            }
-
             std::string sysPattern(rec->blk_device);
             std::string nickname(rec->label);
+            int partnum = rec->partnum;
             int flags = 0;
 
             if (fs_mgr_is_encryptable(rec)) {
@@ -254,9 +250,12 @@ static int process_config(VolumeManager* vm, bool* has_adoptable, bool* has_quot
                     || android::base::GetBoolProperty("vold.debug.default_primary", false)) {
                 flags |= android::vold::Disk::Flags::kDefaultPrimary;
             }
+            if (fs_mgr_is_nonremovable(rec)) {
+                flags |= android::vold::Disk::Flags::kNonRemovable;
+            }
 
             vm->addDiskSource(std::shared_ptr<VolumeManager::DiskSource>(
-                    new VolumeManager::DiskSource(sysPattern, nickname, flags)));
+                    new VolumeManager::DiskSource(sysPattern, nickname, partnum, flags)));
         }
     }
     return 0;
