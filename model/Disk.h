@@ -59,6 +59,8 @@ class Disk {
         /* Flag that disk is a visible Stub disk, i.e., disk that is managed from outside
          * Android (e.g., ARC++) and visible to apps. */
         kStubVisible = 1 << 6,
+        /* Flag that disk is non-removable */
+        kNonRemovable = 1 << 7,
     };
 
     const std::string& getId() const { return mId; }
@@ -78,20 +80,20 @@ class Disk {
 
     std::vector<std::shared_ptr<VolumeBase>> getVolumes() const;
 
-    status_t create();
-    status_t destroy();
+    virtual status_t create();
+    virtual status_t destroy();
 
-    status_t readMetadata();
-    status_t readPartitions();
+    virtual status_t readMetadata();
+    virtual status_t readPartitions();
     void initializePartition(std::shared_ptr<StubVolume> vol);
 
     status_t unmountAll();
 
-    status_t partitionPublic();
-    status_t partitionPrivate();
-    status_t partitionMixed(int8_t ratio);
+    virtual status_t partitionPublic();
+    virtual status_t partitionPrivate();
+    virtual status_t partitionMixed(int8_t ratio);
 
-  private:
+  protected:
     /* ID that uniquely references this disk */
     std::string mId;
     /* Original event path */
