@@ -268,6 +268,14 @@ static int process_config(VolumeManager* vm, VoldConfigs* configs) {
             }
 
             std::string sysPattern(entry.blk_device);
+            std::string fstype;
+            if (!entry.fs_type.empty()) {
+                fstype = entry.fs_type;
+            }
+            std::string mntopts;
+            if (!entry.fs_options.empty()) {
+                mntopts = entry.fs_options;
+            }
             std::string nickname(entry.label);
             int flags = 0;
 
@@ -281,7 +289,8 @@ static int process_config(VolumeManager* vm, VoldConfigs* configs) {
             }
 
             vm->addDiskSource(std::shared_ptr<VolumeManager::DiskSource>(
-                new VolumeManager::DiskSource(sysPattern, nickname, flags)));
+                new VolumeManager::DiskSource(sysPattern, nickname, flags,
+                        fstype, mntopts)));
         }
     }
     return 0;

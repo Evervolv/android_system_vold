@@ -29,7 +29,7 @@ namespace f2fs {
 bool IsSupported();
 
 status_t Check(const std::string& source, bool trusted);
-status_t Mount(const std::string& source, const std::string& target);
+status_t Mount(const std::string& source, const std::string& target, const std::string& opts = "");
 status_t Format(const std::string& source, const bool is_zoned,
                 const std::vector<std::string>& user_devices);
 
