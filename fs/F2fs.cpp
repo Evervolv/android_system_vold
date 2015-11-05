@@ -51,12 +51,13 @@ status_t Check(const std::string& source, bool trusted) {
     return ForkExecvp(cmd, nullptr, trusted ? sFsckContext : sFsckUntrustedContext);
 }
 
-status_t Mount(const std::string& source, const std::string& target) {
+status_t Mount(const std::string& source, const std::string& target, const std::string& opts /* = "" */) {
     const char* c_source = source.c_str();
     const char* c_target = target.c_str();
+    const char* c_opts = opts.c_str();
     unsigned long flags = MS_NOATIME | MS_NODEV | MS_NOSUID | MS_DIRSYNC;
 
-    int res = mount(c_source, c_target, "f2fs", flags, NULL);
+    int res = mount(c_source, c_target, "f2fs", flags, c_opts);
     if (res != 0) {
         PLOG(ERROR) << "Failed to mount " << source;
         if (errno == EROFS) {
