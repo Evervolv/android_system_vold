@@ -114,7 +114,9 @@ class Disk {
     /* Flag that we just partitioned and should format all volumes */
     bool mJustPartitioned;
 
-    void createPublicVolume(dev_t device);
+    void createPublicVolume(dev_t device,
+                    const std::string& fstype = "",
+                    const std::string& mntopts = "");
     void createPrivateVolume(dev_t device, const std::string& partGuid);
     void createStubVolume();
 
