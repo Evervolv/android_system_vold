@@ -176,7 +176,7 @@ status_t PrivateVolume::doMount() {
             return -EIO;
         }
 
-        if (f2fs::Mount(mDmDevPath, mPath)) {
+        if (f2fs::Mount(mDmDevPath, mPath, "")) {
             PLOG(ERROR) << getId() << " failed to mount";
             return -EIO;
         }
