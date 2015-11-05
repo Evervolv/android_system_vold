@@ -235,6 +235,14 @@ static int process_config(VolumeManager *vm, bool* has_adoptable, bool* has_quot
 
         if (fs_mgr_is_voldmanaged(&fstab->recs[i])) {
             std::string sysPattern(fstab->recs[i].blk_device);
+            std::string fstype;
+            if (fstab->recs[i].fs_type) {
+                fstype = fstab->recs[i].fs_type;
+            }
+            std::string mntopts;
+            if (fstab->recs[i].fs_options) {
+                mntopts = fstab->recs[i].fs_options;
+            }
             std::string nickname(fstab->recs[i].label);
             int partnum = fstab->recs[i].partnum;
             int flags = 0;
@@ -252,7 +260,8 @@ static int process_config(VolumeManager *vm, bool* has_adoptable, bool* has_quot
             }
 
             vm->addDiskSource(std::shared_ptr<VolumeManager::DiskSource>(
-                    new VolumeManager::DiskSource(sysPattern, nickname, partnum, flags)));
+                    new VolumeManager::DiskSource(sysPattern, nickname, partnum, flags,
+                                    fstype, mntopts)));
         }
     }
     return 0;
