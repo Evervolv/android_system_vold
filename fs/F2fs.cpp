@@ -52,8 +52,8 @@ status_t Check(const std::string& source, bool trusted) {
     return ForkExecvp(cmd, nullptr, trusted ? sFsckContext : sFsckUntrustedContext);
 }
 
-status_t Mount(const std::string& source, const std::string& target, const std::string& opts /* = "" */, bool portable) {
-
+status_t Mount(const std::string& source, const std::string& target,
+        const std::string& opts /* = "" */, bool trusted, bool portable) {
     std::string data(opts);
 
     if (portable) {
@@ -66,7 +66,13 @@ status_t Mount(const std::string& source, const std::string& target, const std::
     const char* c_source = source.c_str();
     const char* c_target = target.c_str();
     const char* c_data = data.c_str();
-    unsigned long flags = MS_NOATIME | MS_NODEV | MS_NOSUID | MS_DIRSYNC;
+
+    unsigned long flags = MS_NOATIME | MS_NODEV | MS_NOSUID;
+
+    // Only use MS_DIRSYNC if we're not mounting adopted storage
+    if (!trusted) {
+        flags |= MS_DIRSYNC;
+    }
 
     int res = mount(c_source, c_target, "f2fs", flags, c_data);
     if (portable && res == 0) {
