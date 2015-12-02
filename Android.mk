@@ -96,6 +96,10 @@ ifeq ($(TARGET_HW_DISK_ENCRYPTION),true)
   vold_cflags += -DCONFIG_HW_DISK_ENCRYPTION
 endif
 
+ifeq ($(TARGET_KERNEL_HAVE_EXFAT),true)
+  vold_cflags += -DCONFIG_KERNEL_HAVE_EXFAT
+endif
+
 include $(CLEAR_VARS)
 
 LOCAL_ADDITIONAL_DEPENDENCIES := $(LOCAL_PATH)/Android.mk
