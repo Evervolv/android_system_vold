@@ -42,14 +42,13 @@ bool IsSupported() {
            IsFilesystemSupported("f2fs");
 }
 
-status_t Check(const std::string& source) {
+status_t Check(const std::string& source, bool trusted) {
     std::vector<std::string> cmd;
     cmd.push_back(kFsckPath);
     cmd.push_back("-a");
     cmd.push_back(source);
 
-    // f2fs devices are currently always trusted
-    return ForkExecvp(cmd, nullptr, sFsckContext);
+    return ForkExecvp(cmd, nullptr, trusted ? sFsckContext : sFsckUntrustedContext);
 }
 
 status_t Mount(const std::string& source, const std::string& target) {
