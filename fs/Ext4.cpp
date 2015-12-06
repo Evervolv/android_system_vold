@@ -60,7 +60,7 @@ bool IsSupported() {
            IsFilesystemSupported("ext4");
 }
 
-status_t Check(const std::string& source, const std::string& target) {
+status_t Check(const std::string& source, const std::string& target, bool trusted) {
     // The following is shamelessly borrowed from fs_mgr.c, so it should be
     // kept in sync with any changes over there.
 
@@ -116,8 +116,7 @@ status_t Check(const std::string& source, const std::string& target) {
         cmd.push_back("-y");
         cmd.push_back(c_source);
 
-        // ext4 devices are currently always trusted
-        return ForkExecvp(cmd, nullptr, sFsckContext);
+        return ForkExecvp(cmd, nullptr, trusted ? sFsckContext : sFsckUntrustedContext);
     }
 
     return 0;
