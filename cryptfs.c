@@ -3039,7 +3039,7 @@ static int cryptfs_enable_all_volumes(struct crypt_mnt_ftr *crypt_ftr, int how,
 }
 
 int cryptfs_enable_internal(char *howarg, int crypt_type, char *passwd,
-                            int allow_reboot)
+                            int no_ui)
 {
     int how = 0;
     char crypto_blkdev[MAXPATHLEN], real_blkdev[MAXPATHLEN];
@@ -3142,11 +3142,7 @@ int cryptfs_enable_internal(char *howarg, int crypt_type, char *passwd,
 
     /* Now unmount the /data partition. */
     if (wait_and_unmount(DATA_MNT_POINT, false)) {
-        if (allow_reboot) {
-            goto error_shutting_down;
-        } else {
-            goto error_unencrypted;
-        }
+        goto error_unencrypted;
     }
 
     /* Start the actual work of making an encrypted filesystem */
@@ -3207,8 +3203,7 @@ int cryptfs_enable_internal(char *howarg, int crypt_type, char *passwd,
         }
     }
 
-    /* Do extra work for a better UX when doing the long inplace encryption */
-    if (how == CRYPTO_ENABLE_INPLACE) {
+    if (how == CRYPTO_ENABLE_INPLACE && !no_ui) {
         /* Now that /data is unmounted, we need to mount a tmpfs
          * /data, set a property saying we're doing inplace encryption,
          * and restart the framework.
@@ -3378,15 +3373,15 @@ error_shutting_down:
     return -1;
 }
 
-int cryptfs_enable(char *howarg, int type, char *passwd, int allow_reboot)
+int cryptfs_enable(char *howarg, int type, char *passwd, int no_ui)
 {
-    return cryptfs_enable_internal(howarg, type, passwd, allow_reboot);
+    return cryptfs_enable_internal(howarg, type, passwd, no_ui);
 }
 
-int cryptfs_enable_default(char *howarg, int allow_reboot)
+int cryptfs_enable_default(char *howarg, int no_ui)
 {
     return cryptfs_enable_internal(howarg, CRYPT_TYPE_DEFAULT,
-                          DEFAULT_PASSWORD, allow_reboot);
+                          DEFAULT_PASSWORD, no_ui);
 }
 
 int cryptfs_changepw(int crypt_type, const char *currentpw, const char *newpw)
