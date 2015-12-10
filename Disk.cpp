@@ -69,6 +69,7 @@ static const unsigned int kMajorBlockScsiN = 133;
 static const unsigned int kMajorBlockScsiO = 134;
 static const unsigned int kMajorBlockScsiP = 135;
 static const unsigned int kMajorBlockMmc = 179;
+static const unsigned int kMajorBlockDm = 254;
 
 static const char* kGptBasicData = "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7";
 static const char* kGptAndroidMeta = "19A710A2-B3CA-11E4-B026-10604B889DCF";
@@ -514,6 +515,9 @@ int Disk::getMaxMinors() {
             return -errno;
         }
         return atoi(tmp.c_str());
+    }
+    case kMajorBlockDm: {
+        return 15;
     }
     }
 
