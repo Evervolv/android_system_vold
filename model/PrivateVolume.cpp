@@ -164,7 +164,7 @@ status_t PrivateVolume::doMount() {
             return -EIO;
         }
 
-        if (ext4::Mount(mDmDevPath, mPath, false, false, true)) {
+        if (ext4::Mount(mDmDevPath, mPath, false, false, true, "", true)) {
             PLOG(ERROR) << getId() << " failed to mount";
             return -EIO;
         }
@@ -178,7 +178,7 @@ status_t PrivateVolume::doMount() {
             return -EIO;
         }
 
-        if (f2fs::Mount(mDmDevPath, mPath, "")) {
+        if (f2fs::Mount(mDmDevPath, mPath, "", true)) {
             PLOG(ERROR) << getId() << " failed to mount";
             return -EIO;
         }
