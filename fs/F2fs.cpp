@@ -19,10 +19,10 @@
 
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
-
+#include <private/android_filesystem_config.h>
 #include <vector>
 #include <string>
-
+#include <sys/stat.h>
 #include <sys/mount.h>
 
 using android::base::StringPrintf;
@@ -49,17 +49,32 @@ status_t Check(const std::string& source, bool trusted) {
     return ForkExecvp(cmd, trusted ? sFsckContext : sFsckUntrustedContext);
 }
 
-status_t Mount(const std::string& source, const std::string& target, const std::string& opts /* = "" */) {
+status_t Mount(const std::string& source, const std::string& target, const std::string& opts /* = "" */, bool portable) {
+
+    std::string data(opts);
+
+    if (portable) {
+        if (!data.empty()) {
+            data += ",";
+        }
+        data += "context=u:object_r:sdcard_posix:s0";
+    }
+
     const char* c_source = source.c_str();
     const char* c_target = target.c_str();
-    const char* c_opts = opts.c_str();
+    const char* c_data = data.c_str();
     unsigned long flags = MS_NOATIME | MS_NODEV | MS_NOSUID | MS_DIRSYNC;
 
-    int res = mount(c_source, c_target, "f2fs", flags, c_opts);
+    int res = mount(c_source, c_target, "f2fs", flags, c_data);
+    if (portable && res == 0) {
+        chown(c_target, AID_MEDIA_RW, AID_MEDIA_RW);
+        chmod(c_target, 0755);
+    }
+
     if (res != 0) {
         PLOG(ERROR) << "Failed to mount " << source;
         if (errno == EROFS) {
-            res = mount(c_source, c_target, "f2fs", flags | MS_RDONLY, NULL);
+            res = mount(c_source, c_target, "f2fs", flags | MS_RDONLY, c_data);
             if (res != 0) {
                 PLOG(ERROR) << "Failed to mount read-only " << source;
             }
