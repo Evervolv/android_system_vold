@@ -161,7 +161,7 @@ status_t Mount(const std::string& source, const std::string& target, bool ro,
     rc = mount(c_source, c_target, "ext4", flags, c_data);
     if (portable && rc == 0) {
         chown(c_target, AID_MEDIA_RW, AID_MEDIA_RW);
-        chmod(c_target, 0755);
+        chmod(c_target, 0775);
     }
 
     if (rc && errno == EROFS) {
