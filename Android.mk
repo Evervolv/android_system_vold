@@ -97,6 +97,10 @@ ifeq ($(TARGET_KERNEL_HAVE_NTFS),true)
 vold_cflags += -DCONFIG_KERNEL_HAVE_NTFS
 endif
 
+ifeq ($(BOARD_REQUIRES_FORCE_VPARTITION),true)
+vold_cflags += -DCONFIG_FORCE_VPARTITION
+endif
+
 include $(CLEAR_VARS)
 
 LOCAL_ADDITIONAL_DEPENDENCIES := $(LOCAL_PATH)/Android.mk
