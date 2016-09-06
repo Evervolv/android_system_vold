@@ -796,6 +796,7 @@ bool Readlinkat(int dirfd, const std::string& path, std::string* result) {
     }
 }
 
+#ifndef CONFIG_FORCE_VPARTITION
 static unsigned int GetMajorBlockVirtioBlk() {
     std::string devices;
     if (!ReadFileToString(kProcDevices, &devices)) {
@@ -819,6 +820,7 @@ static unsigned int GetMajorBlockVirtioBlk() {
 
     return 0;
 }
+#endif
 
 bool IsVirtioBlkDevice(unsigned int major) {
     // Most virtualized platforms expose block devices with the virtio-blk
@@ -827,8 +829,12 @@ bool IsVirtioBlkDevice(unsigned int major) {
     // range of block majors, which are allocated for "LOCAL/EXPERIMENAL USE"
     // per Documentation/devices.txt. This is true even for the latest Linux
     // kernel (4.4; see init() in drivers/block/virtio_blk.c).
+#ifdef CONFIG_FORCE_VPARTITION
+    return true;
+#else
     static unsigned int kMajorBlockVirtioBlk = GetMajorBlockVirtioBlk();
     return kMajorBlockVirtioBlk && major == kMajorBlockVirtioBlk;
+#endif
 }
 
 static status_t findMountPointsWithPrefix(const std::string& prefix,

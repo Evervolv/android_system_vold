@@ -158,6 +158,9 @@ cc_library_static {
             device_support_hwfde_perf: {
                 cflags: ["-DCONFIG_HW_DISK_ENCRYPT_PERF"],
             },
+            force_virtual_partitions: {
+                cflags: ["-DCONFIG_FORCE_VPARTITION"],
+            },
         },
     },
     shared_libs: [
