@@ -106,8 +106,12 @@ static bool isVirtioBlkDevice(unsigned int major) {
      * "ranchu", the device's sysfs path should end with "/block/vd[d-z]", etc.
      * But just having a) and b) is enough for now.
      */
+#ifdef CONFIG_FORCE_VPARTITION
+	return true;
+#else
     return IsRunningInEmulator() && major >= kMajorBlockExperimentalMin
             && major <= kMajorBlockExperimentalMax;
+#endif
 }
 
 Disk::Disk(const std::string& eventPath, dev_t device,
