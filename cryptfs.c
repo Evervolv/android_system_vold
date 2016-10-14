@@ -2318,6 +2318,7 @@ int cryptfs_check_passwd_hw(char* passwd)
 {
     struct crypt_mnt_ftr crypt_ftr;
     int rc;
+    unsigned char master_key[KEY_LEN_BYTES];
 
     /* get key */
     if (get_crypt_ftr_and_key(&crypt_ftr)) {
@@ -2330,6 +2331,17 @@ int cryptfs_check_passwd_hw(char* passwd)
      * default password
      */
     if (crypt_ftr.flags & CRYPT_FORCE_COMPLETE) {
+        /* compare scrypted_intermediate_key with stored scrypted_intermediate_key
+         * which was created with actual password before reboot.
+         */
+        rc = cryptfs_get_master_key(&crypt_ftr, passwd, master_key);
+        if (rc) {
+            SLOGE("password doesn't match");
+            rc = ++crypt_ftr.failed_decrypt_count;
+            put_crypt_ftr_and_key(&crypt_ftr);
+            return rc;
+        }
+
         rc = test_mount_hw_encrypted_fs(&crypt_ftr, DEFAULT_PASSWORD,
             DATA_MNT_POINT, CRYPTO_BLOCK_DEVICE);
 
@@ -3490,19 +3502,23 @@ int cryptfs_enable_internal(char *howarg, int crypt_type, char *passwd,
        So set the encryption key when the actual encryption starts.
      */
 #ifdef CONFIG_HW_DISK_ENCRYPTION
-    if (previously_encrypted_upto == 0 && !onlyCreateHeader) {
-        clear_hw_device_encryption_key();
-        if (get_keymaster_hw_fde_passwd(passwd, newpw, crypt_ftr.salt,
-                                           &crypt_ftr))
-            key_index = set_hw_device_encryption_key(passwd, (char*)crypt_ftr.crypto_type_name);
+    if (previously_encrypted_upto == 0) {
+        if (!rebootEncryption)
+            clear_hw_device_encryption_key();
+
+        if (get_keymaster_hw_fde_passwd(
+                         onlyCreateHeader ? DEFAULT_PASSWORD : passwd,
+                         newpw, crypt_ftr.salt, &crypt_ftr))
+            key_index = set_hw_device_encryption_key(
+                         onlyCreateHeader ? DEFAULT_PASSWORD : passwd,
+                         (char*)crypt_ftr.crypto_type_name);
         else
             key_index = set_hw_device_encryption_key((const char*)newpw,
                                 (char*) crypt_ftr.crypto_type_name);
         if (key_index < 0)
             goto error_shutting_down;
-        else
-            crypt_ftr.flags |= CRYPT_ASCII_PASSWORD_UPDATED;
 
+        crypt_ftr.flags |= CRYPT_ASCII_PASSWORD_UPDATED;
         put_crypt_ftr_and_key(&crypt_ftr);
     }
 #endif
