@@ -63,6 +63,9 @@
 #include "Keymaster.h"
 #include "android-base/properties.h"
 #include <bootloader_message/bootloader_message.h>
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+#include <cryptfs_hw.h>
+#endif
 extern "C" {
 #include <crypto_scrypt.h>
 }
@@ -77,6 +80,7 @@ extern "C" {
 
 #define KEY_IN_FOOTER  "footer"
 
+#define DEFAULT_HEX_PASSWORD "64656661756c745f70617373776f7264"
 #define DEFAULT_PASSWORD "default_password"
 
 #define CRYPTO_BLOCK_DEVICE "userdata"
@@ -100,6 +104,149 @@ static unsigned char saved_master_key[KEY_LEN_BYTES];
 static char *saved_mount_point;
 static int  master_key_saved = 0;
 static struct crypt_persist_data *persist_data = NULL;
+
+static int previous_type;
+
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+static int scrypt_keymaster(const char *passwd, const unsigned char *salt,
+                            unsigned char *ikey, void *params);
+static void convert_key_to_hex_ascii(const unsigned char *master_key,
+                                     unsigned int keysize, char *master_key_ascii);
+static int put_crypt_ftr_and_key(struct crypt_mnt_ftr *crypt_ftr);
+static int test_mount_hw_encrypted_fs(struct crypt_mnt_ftr* crypt_ftr,
+                const char *passwd, const char *mount_point, const char *label);
+int cryptfs_changepw_hw_fde(int crypt_type, const char *currentpw,
+                                   const char *newpw);
+int cryptfs_check_passwd_hw(char *passwd);
+
+static void convert_key_to_hex_ascii_for_upgrade(const unsigned char *master_key,
+                                     unsigned int keysize, char *master_key_ascii)
+{
+    unsigned int i, a;
+    unsigned char nibble;
+
+    for (i = 0, a = 0; i < keysize; i++, a += 2) {
+        /* For each byte, write out two ascii hex digits */
+        nibble = (master_key[i] >> 4) & 0xf;
+        master_key_ascii[a] = nibble + (nibble > 9 ? 0x57 : 0x30);
+
+        nibble = master_key[i] & 0xf;
+        master_key_ascii[a + 1] = nibble + (nibble > 9 ? 0x57 : 0x30);
+    }
+
+    /* Add the null termination */
+    master_key_ascii[a] = '\0';
+}
+
+static int get_keymaster_hw_fde_passwd(const char* passwd, unsigned char* newpw,
+                                  unsigned char* salt,
+                                  const struct crypt_mnt_ftr *ftr)
+{
+    /* if newpw updated, return 0
+     * if newpw not updated return -1
+     */
+    int rc = -1;
+
+    if (should_use_keymaster()) {
+        if (scrypt_keymaster(passwd, salt, newpw, (void*)ftr)) {
+            SLOGE("scrypt failed");
+        } else {
+            rc = 0;
+        }
+    }
+
+    return rc;
+}
+
+static int verify_hw_fde_passwd(const char *passwd, struct crypt_mnt_ftr* crypt_ftr)
+{
+    unsigned char newpw[32] = {0};
+    int key_index;
+    if (get_keymaster_hw_fde_passwd(passwd, newpw, crypt_ftr->salt, crypt_ftr))
+        key_index = set_hw_device_encryption_key(passwd,
+                                           (char*) crypt_ftr->crypto_type_name);
+    else
+        key_index = set_hw_device_encryption_key((const char*)newpw,
+                                           (char*) crypt_ftr->crypto_type_name);
+    return key_index;
+}
+
+static int verify_and_update_hw_fde_passwd(const char *passwd,
+                                           struct crypt_mnt_ftr* crypt_ftr)
+{
+    char* new_passwd = NULL;
+    unsigned char newpw[32] = {0};
+    int key_index = -1;
+    int passwd_updated = -1;
+    int ascii_passwd_updated = (crypt_ftr->flags & CRYPT_ASCII_PASSWORD_UPDATED);
+
+    key_index = verify_hw_fde_passwd(passwd, crypt_ftr);
+    if (key_index < 0) {
+        ++crypt_ftr->failed_decrypt_count;
+
+        if (ascii_passwd_updated) {
+            SLOGI("Ascii password was updated");
+        } else {
+            /* Code in else part would execute only once:
+             * When device is upgraded from L->M release.
+             * Once upgraded, code flow should never come here.
+             * L release passed actual password in hex, so try with hex
+             * Each nible of passwd was encoded as a byte, so allocate memory
+             * twice of password len plus one more byte for null termination
+             */
+            if (crypt_ftr->crypt_type == CRYPT_TYPE_DEFAULT) {
+                new_passwd = (char*)malloc(strlen(DEFAULT_HEX_PASSWORD) + 1);
+                if (new_passwd == NULL) {
+                    SLOGE("System out of memory. Password verification  incomplete");
+                    goto out;
+                }
+                strlcpy(new_passwd, DEFAULT_HEX_PASSWORD, strlen(DEFAULT_HEX_PASSWORD) + 1);
+            } else {
+                new_passwd = (char*)malloc(strlen(passwd) * 2 + 1);
+                if (new_passwd == NULL) {
+                    SLOGE("System out of memory. Password verification  incomplete");
+                    goto out;
+                }
+                convert_key_to_hex_ascii_for_upgrade((const unsigned char*)passwd,
+                                       strlen(passwd), new_passwd);
+            }
+            key_index = set_hw_device_encryption_key((const char*)new_passwd,
+                                       (char*) crypt_ftr->crypto_type_name);
+            if (key_index >=0) {
+                crypt_ftr->failed_decrypt_count = 0;
+                SLOGI("Hex password verified...will try to update with Ascii value");
+                /* Before updating password, tie that with keymaster to tie with ROT */
+
+                if (get_keymaster_hw_fde_passwd(passwd, newpw,
+                                                crypt_ftr->salt, crypt_ftr)) {
+                    passwd_updated = update_hw_device_encryption_key(new_passwd,
+                                     passwd, (char*)crypt_ftr->crypto_type_name);
+                } else {
+                    passwd_updated = update_hw_device_encryption_key(new_passwd,
+                                     (const char*)newpw, (char*)crypt_ftr->crypto_type_name);
+                }
+
+                if (passwd_updated >= 0) {
+                    crypt_ftr->flags |= CRYPT_ASCII_PASSWORD_UPDATED;
+                    SLOGI("Ascii password recorded and updated");
+                } else {
+                    SLOGI("Passwd verified, could not update...Will try next time");
+                }
+            } else {
+                ++crypt_ftr->failed_decrypt_count;
+            }
+            free(new_passwd);
+        }
+    } else {
+        if (!ascii_passwd_updated)
+            crypt_ftr->flags |= CRYPT_ASCII_PASSWORD_UPDATED;
+    }
+out:
+    // update footer before leaving
+    put_crypt_ftr_and_key(crypt_ftr);
+    return key_index;
+}
+#endif
 
 /* Should we use keymaster? */
 static int keymaster_check_compatibility()
@@ -835,15 +982,35 @@ static int load_crypto_mapping_table(struct crypt_mnt_ftr *crypt_ftr,
   tgt->status = 0;
   tgt->sector_start = 0;
   tgt->length = crypt_ftr->fs_size;
-  strlcpy(tgt->target_type, "crypt", DM_MAX_TYPE_NAME);
-
   crypt_params = buffer + sizeof(struct dm_ioctl) + sizeof(struct dm_target_spec);
-  convert_key_to_hex_ascii(master_key, crypt_ftr->keysize, master_key_ascii);
-
   buff_offset = crypt_params - buffer;
+
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+  if(is_hw_disk_encryption((char*)crypt_ftr->crypto_type_name)) {
+    strlcpy(tgt->target_type, "req-crypt",DM_MAX_TYPE_NAME);
+    if (is_ice_enabled())
+      convert_key_to_hex_ascii(master_key, sizeof(int), master_key_ascii);
+    else
+      convert_key_to_hex_ascii(master_key, crypt_ftr->keysize, master_key_ascii);
+  }
+  else {
+    convert_key_to_hex_ascii(master_key, crypt_ftr->keysize, master_key_ascii);
+    strlcpy(tgt->target_type, "crypt", DM_MAX_TYPE_NAME);
+  }
+  snprintf(crypt_params, sizeof(buffer) - buff_offset, "%s %s 0 %s 0 %s 0",
+           crypt_ftr->crypto_type_name, master_key_ascii,
+           real_blk_name, extra_params);
+
+  SLOGI("target_type = %s", tgt->target_type);
+  SLOGI("real_blk_name = %s, extra_params = %s", real_blk_name, extra_params);
+#else
+  convert_key_to_hex_ascii(master_key, crypt_ftr->keysize, master_key_ascii);
+  strlcpy(tgt->target_type, "crypt", DM_MAX_TYPE_NAME);
   snprintf(crypt_params, sizeof(buffer) - buff_offset, "%s %s 0 %s 0 %s",
            crypt_ftr->crypto_type_name, master_key_ascii, real_blk_name,
            extra_params);
+#endif
+
   crypt_params += strlen(crypt_params) + 1;
   crypt_params = (char *) (((unsigned long)crypt_params + 7) & ~8); /* Align to an 8 byte boundary */
   tgt->next = crypt_params - buffer;
@@ -862,7 +1029,6 @@ static int load_crypto_mapping_table(struct crypt_mnt_ftr *crypt_ftr,
     return i + 1;
   }
 }
-
 
 static int get_dm_crypt_version(int fd, const char *name,  int *version)
 {
@@ -883,7 +1049,11 @@ static int get_dm_crypt_version(int fd, const char *name,  int *version)
      */
     v = (struct dm_target_versions *) &buffer[sizeof(struct dm_ioctl)];
     while (v->next) {
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+	if (! strcmp(v->name, "crypt") || ! strcmp(v->name, "req-crypt")) {
+#else
         if (! strcmp(v->name, "crypt")) {
+#endif
             /* We found the crypt driver, return the version, and get out */
             version[0] = v->version[0];
             version[1] = v->version[1];
@@ -908,6 +1078,10 @@ static int create_crypto_blk_dev(struct crypt_mnt_ftr *crypt_ftr,
   int version[3];
   const char *extra_params;
   int load_count;
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+  char encrypted_state[PROPERTY_VALUE_MAX] = {0};
+  char progress[PROPERTY_VALUE_MAX] = {0};
+#endif
 
   if ((fd = open("/dev/device-mapper", O_RDWR|O_CLOEXEC)) < 0 ) {
     SLOGE("Cannot open device-mapper\n");
@@ -932,6 +1106,30 @@ static int create_crypto_blk_dev(struct crypt_mnt_ftr *crypt_ftr,
   minor = (io->dev & 0xff) | ((io->dev >> 12) & 0xfff00);
   snprintf(crypto_blk_name, MAXPATHLEN, "/dev/block/dm-%u", minor);
 
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+  if(is_hw_disk_encryption((char*)crypt_ftr->crypto_type_name)) {
+    /* Set fde_enabled if either FDE completed or in-progress */
+    property_get("ro.crypto.state", encrypted_state, ""); /* FDE completed */
+    property_get("vold.encrypt_progress", progress, ""); /* FDE in progress */
+    if (!strcmp(encrypted_state, "encrypted") || strcmp(progress, "")) {
+      if (is_ice_enabled())
+          extra_params = "fde_enabled ice";
+      else
+        extra_params = "fde_enabled";
+    } else
+      extra_params = "fde_disabled";
+  } else {
+    extra_params = "";
+    if (! get_dm_crypt_version(fd, name, version)) {
+      /* Support for allow_discards was added in version 1.11.0 */
+      if ((version[0] >= 2) ||
+          ((version[0] == 1) && (version[1] >= 11))) {
+          extra_params = "1 allow_discards";
+          SLOGI("Enabling support for allow_discards in dmcrypt.\n");
+      }
+    }
+  }
+#else
   extra_params = "";
   if (! get_dm_crypt_version(fd, name, version)) {
       /* Support for allow_discards was added in version 1.11.0 */
@@ -941,6 +1139,7 @@ static int create_crypto_blk_dev(struct crypt_mnt_ftr *crypt_ftr,
           SLOGI("Enabling support for allow_discards in dmcrypt.\n");
       }
   }
+#endif
 
   load_count = load_crypto_mapping_table(crypt_ftr, master_key, real_blk_name, name,
                                          fd, extra_params);
@@ -1073,7 +1272,8 @@ static int scrypt_keymaster(const char *passwd, const unsigned char *salt,
 static int encrypt_master_key(const char *passwd, const unsigned char *salt,
                               const unsigned char *decrypted_master_key,
                               unsigned char *encrypted_master_key,
-                              struct crypt_mnt_ftr *crypt_ftr)
+                              struct crypt_mnt_ftr *crypt_ftr,
+                              bool create_keymaster_key)
 {
     unsigned char ikey[32+32] = { 0 }; /* Big enough to hold a 256 bit key and 256 bit IV */
     EVP_CIPHER_CTX e_ctx;
@@ -1085,7 +1285,7 @@ static int encrypt_master_key(const char *passwd, const unsigned char *salt,
 
     switch (crypt_ftr->kdf_type) {
     case KDF_SCRYPT_KEYMASTER:
-        if (keymaster_create_key(crypt_ftr)) {
+        if (create_keymaster_key && keymaster_create_key(crypt_ftr)) {
             SLOGE("keymaster_create_key failed");
             return -1;
         }
@@ -1252,13 +1452,13 @@ static int create_encrypted_random_key(const char *passwd, unsigned char *master
     close(fd);
 
     /* Now encrypt it with the password */
-    return encrypt_master_key(passwd, salt, key_buf, master_key, crypt_ftr);
+    return encrypt_master_key(passwd, salt, key_buf, master_key, crypt_ftr, true);
 }
 
 int wait_and_unmount(const char *mountpoint, bool kill)
 {
     int i, err, rc;
-#define WAIT_UNMOUNT_COUNT 20
+#define WAIT_UNMOUNT_COUNT 200
 
     /*  Now umount the tmpfs filesystem */
     for (i=0; i<WAIT_UNMOUNT_COUNT; i++) {
@@ -1275,18 +1475,18 @@ int wait_and_unmount(const char *mountpoint, bool kill)
 
         err = errno;
 
-        /* If allowed, be increasingly aggressive before the last two retries */
+        /* If allowed, be increasingly aggressive before the last 2 seconds */
         if (kill) {
-            if (i == (WAIT_UNMOUNT_COUNT - 3)) {
+            if (i == (WAIT_UNMOUNT_COUNT - 30)) {
                 SLOGW("sending SIGHUP to processes with open files\n");
                 vold_killProcessesWithOpenFiles(mountpoint, SIGTERM);
-            } else if (i == (WAIT_UNMOUNT_COUNT - 2)) {
+            } else if (i == (WAIT_UNMOUNT_COUNT - 20)) {
                 SLOGW("sending SIGKILL to processes with open files\n");
                 vold_killProcessesWithOpenFiles(mountpoint, SIGKILL);
             }
         }
 
-        sleep(1);
+        usleep(100000);
     }
 
     if (i < WAIT_UNMOUNT_COUNT) {
@@ -1458,6 +1658,17 @@ static int cryptfs_restart_internal(int restart_main)
                     cryptfs_reboot(reboot);
                 }
             } else {
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+                if (--retries) {
+                    sleep(RETRY_MOUNT_DELAY_SECONDS);
+                } else {
+                    SLOGE("Failed to mount decrypted data");
+                    cryptfs_set_corrupt();
+                    cryptfs_trigger_restart_min_framework();
+                    SLOGI("Started framework to offer wipe");
+                    return -1;
+                }
+#else
                 SLOGE("Failed to mount decrypted data");
                 cryptfs_set_corrupt();
                 cryptfs_trigger_restart_min_framework();
@@ -1466,6 +1677,7 @@ static int cryptfs_restart_internal(int restart_main)
                     SLOGE("Failed to setexeccon");
                 }
                 return -1;
+#endif
             }
         }
         if (setexeccon(NULL)) {
@@ -1561,6 +1773,66 @@ static int do_crypto_complete(const char *mount_point)
   /* We passed the test! We shall diminish, and return to the west */
   return CRYPTO_COMPLETE_ENCRYPTED;
 }
+
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+static int test_mount_hw_encrypted_fs(struct crypt_mnt_ftr* crypt_ftr,
+             const char *passwd, const char *mount_point, const char *label)
+{
+  /* Allocate enough space for a 256 bit key, but we may use less */
+  unsigned char decrypted_master_key[32];
+  char crypto_blkdev[MAXPATHLEN];
+  char real_blkdev[MAXPATHLEN];
+  unsigned int orig_failed_decrypt_count;
+  int rc = 0;
+
+  SLOGD("crypt_ftr->fs_size = %lld\n", crypt_ftr->fs_size);
+  orig_failed_decrypt_count = crypt_ftr->failed_decrypt_count;
+
+  fs_mgr_get_crypt_info(fstab, 0, real_blkdev, sizeof(real_blkdev));
+
+  int key_index = 0;
+  if(is_hw_disk_encryption((char*)crypt_ftr->crypto_type_name)) {
+    key_index = verify_and_update_hw_fde_passwd(passwd, crypt_ftr);
+    if (key_index < 0) {
+      rc = crypt_ftr->failed_decrypt_count;
+      goto errout;
+    }
+    else {
+      if (is_ice_enabled()) {
+        if (create_crypto_blk_dev(crypt_ftr, (unsigned char*)&key_index,
+                            real_blkdev, crypto_blkdev, label)) {
+          SLOGE("Error creating decrypted block device");
+          rc = -1;
+          goto errout;
+        }
+      } else {
+        if (create_crypto_blk_dev(crypt_ftr, decrypted_master_key,
+                            real_blkdev, crypto_blkdev, label)) {
+          SLOGE("Error creating decrypted block device");
+          rc = -1;
+          goto errout;
+        }
+      }
+    }
+  }
+
+  if (rc == 0) {
+    crypt_ftr->failed_decrypt_count = 0;
+    if (orig_failed_decrypt_count != 0) {
+      put_crypt_ftr_and_key(crypt_ftr);
+    }
+
+    /* Save the name of the crypto block device
+     * so we can mount it when restarting the framework. */
+    property_set("ro.crypto.fs_crypto_blkdev", crypto_blkdev);
+    master_key_saved = 1;
+  }
+
+ errout:
+  return rc;
+}
+#endif
+
 
 static int test_mount_encrypted_fs(struct crypt_mnt_ftr* crypt_ftr,
                                    const char *passwd, const char *mount_point, const char *label)
@@ -1670,7 +1942,7 @@ static int test_mount_encrypted_fs(struct crypt_mnt_ftr* crypt_ftr,
 
     if (upgrade) {
         rc = encrypt_master_key(passwd, crypt_ftr->salt, saved_master_key,
-                                crypt_ftr->master_key, crypt_ftr);
+                                crypt_ftr->master_key, crypt_ftr, true);
         if (!rc) {
             rc = put_crypt_ftr_and_key(crypt_ftr);
         }
@@ -1762,6 +2034,54 @@ int check_unmounted_and_get_ftr(struct crypt_mnt_ftr* crypt_ftr)
     return 0;
 }
 
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+int cryptfs_check_passwd_hw(const char* passwd)
+{
+    struct crypt_mnt_ftr crypt_ftr;
+    int rc;
+
+    /* get key */
+    if (get_crypt_ftr_and_key(&crypt_ftr)) {
+        SLOGE("Error getting crypt footer and key");
+        return -1;
+    }
+
+    /*
+     * in case of manual encryption (from GUI), the encryption is done with
+     * default password
+     */
+    if (crypt_ftr.flags & CRYPT_FORCE_COMPLETE) {
+        rc = test_mount_hw_encrypted_fs(&crypt_ftr, DEFAULT_PASSWORD,
+            DATA_MNT_POINT, CRYPTO_BLOCK_DEVICE);
+
+        if (rc) {
+            SLOGE("Default password did not match on reboot encryption");
+            return rc;
+        }
+
+        crypt_ftr.flags &= ~CRYPT_FORCE_COMPLETE;
+        put_crypt_ftr_and_key(&crypt_ftr);
+        rc = cryptfs_changepw(crypt_ftr.crypt_type, DEFAULT_PASSWORD, passwd);
+        if (rc) {
+            SLOGE("Could not change password on reboot encryption");
+            return rc;
+        }
+    } else
+        rc = test_mount_hw_encrypted_fs(&crypt_ftr, passwd,
+            DATA_MNT_POINT, CRYPTO_BLOCK_DEVICE);
+
+    if (crypt_ftr.crypt_type != CRYPT_TYPE_DEFAULT) {
+        cryptfs_clear_password();
+        password = strdup(passwd);
+        struct timespec now;
+        clock_gettime(CLOCK_BOOTTIME, &now);
+        password_expiry_time = now.tv_sec + password_max_age_seconds;
+    }
+
+    return rc;
+}
+#endif
+
 int cryptfs_check_passwd(const char *passwd)
 {
     SLOGI("cryptfs_check_passwd");
@@ -1779,8 +2099,14 @@ int cryptfs_check_passwd(const char *passwd)
         return rc;
     }
 
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+    if (is_hw_disk_encryption((char*)crypt_ftr.crypto_type_name))
+        return cryptfs_check_passwd_hw(passwd);
+#endif
+
     rc = test_mount_encrypted_fs(&crypt_ftr, passwd,
                                  DATA_MNT_POINT, CRYPTO_BLOCK_DEVICE);
+
     if (rc) {
         SLOGE("Password did not match");
         return rc;
@@ -1801,7 +2127,7 @@ int cryptfs_check_passwd(const char *passwd)
 
         crypt_ftr.flags &= ~CRYPT_FORCE_COMPLETE;
         put_crypt_ftr_and_key(&crypt_ftr);
-        rc = cryptfs_changepw(crypt_ftr.crypt_type, passwd);
+        rc = cryptfs_changepw(crypt_ftr.crypt_type, DEFAULT_PASSWORD, passwd);
         if (rc) {
             SLOGE("Could not change password on reboot encryption");
             return rc;
@@ -1852,6 +2178,24 @@ int cryptfs_verify_passwd(char *passwd)
         /* If the device has no password, then just say the password is valid */
         rc = 0;
     } else {
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+        if(is_hw_disk_encryption((char*)crypt_ftr.crypto_type_name)) {
+            if (verify_hw_fde_passwd(passwd, &crypt_ftr) >= 0)
+              rc = 0;
+            else
+              rc = -1;
+        } else {
+            decrypt_master_key(passwd, decrypted_master_key, &crypt_ftr, 0, 0);
+            if (!memcmp(decrypted_master_key, saved_master_key, crypt_ftr.keysize)) {
+                /* They match, the password is correct */
+                rc = 0;
+            } else {
+              /* If incorrect, sleep for a bit to prevent dictionary attacks */
+                sleep(1);
+                rc = 1;
+            }
+        }
+#else
         decrypt_master_key(passwd, decrypted_master_key, &crypt_ftr, 0, 0);
         if (!memcmp(decrypted_master_key, saved_master_key, crypt_ftr.keysize)) {
             /* They match, the password is correct */
@@ -1861,6 +2205,7 @@ int cryptfs_verify_passwd(char *passwd)
             sleep(1);
             rc = 1;
         }
+#endif
     }
 
     return rc;
@@ -2693,6 +3038,12 @@ int cryptfs_enable_internal(char *howarg, int crypt_type, const char *passwd,
     off64_t previously_encrypted_upto = 0;
     bool rebootEncryption = false;
     bool onlyCreateHeader = false;
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+    unsigned char newpw[32];
+    int key_index = 0;
+#endif
+    int index = 0;
+
     int fd = -1;
 
     if (!strcmp(howarg, "wipe")) {
@@ -2804,32 +3155,6 @@ int cryptfs_enable_internal(char *howarg, int crypt_type, const char *passwd,
         fclose(breadcrumb);
     }
 
-    /* Do extra work for a better UX when doing the long inplace encryption */
-    if (how == CRYPTO_ENABLE_INPLACE && !onlyCreateHeader) {
-        /* Now that /data is unmounted, we need to mount a tmpfs
-         * /data, set a property saying we're doing inplace encryption,
-         * and restart the framework.
-         */
-        if (fs_mgr_do_tmpfs_mount(DATA_MNT_POINT)) {
-            goto error_shutting_down;
-        }
-        /* Tells the framework that inplace encryption is starting */
-        property_set("vold.encrypt_progress", "0");
-
-        /* restart the framework. */
-        /* Create necessary paths on /data */
-        if (prep_data_fs()) {
-            goto error_shutting_down;
-        }
-
-        /* Ugh, shutting down the framework is not synchronous, so until it
-         * can be fixed, this horrible hack will wait a moment for it all to
-         * shut down before proceeding.  Without it, some devices cannot
-         * restart the graphics services.
-         */
-        sleep(2);
-    }
-
     /* Start the actual work of making an encrypted filesystem */
     /* Initialize a crypt_mnt_ftr for the partition */
     if (previously_encrypted_upto == 0 && !rebootEncryption) {
@@ -2853,7 +3178,11 @@ int cryptfs_enable_internal(char *howarg, int crypt_type, const char *passwd,
             crypt_ftr.flags |= CRYPT_INCONSISTENT_STATE;
         }
         crypt_ftr.crypt_type = crypt_type;
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+	strlcpy((char *)crypt_ftr.crypto_type_name, "aes-xts", MAX_CRYPTO_TYPE_NAME_LEN);
+#else
         strlcpy((char *)crypt_ftr.crypto_type_name, "aes-cbc-essiv:sha256", MAX_CRYPTO_TYPE_NAME_LEN);
+#endif
 
         /* Make an encrypted master key */
         if (create_encrypted_random_key(onlyCreateHeader ? DEFAULT_PASSWORD : passwd,
@@ -2868,7 +3197,7 @@ int cryptfs_enable_internal(char *howarg, int crypt_type, const char *passwd,
             unsigned char encrypted_fake_master_key[KEY_LEN_BYTES];
             memset(fake_master_key, 0, sizeof(fake_master_key));
             encrypt_master_key(passwd, crypt_ftr.salt, fake_master_key,
-                               encrypted_fake_master_key, &crypt_ftr);
+                               encrypted_fake_master_key, &crypt_ftr, true);
         }
 
         /* Write the key to the end of the partition */
@@ -2889,12 +3218,57 @@ int cryptfs_enable_internal(char *howarg, int crypt_type, const char *passwd,
         }
     }
 
+    /* When encryption triggered from settings, encryption starts after reboot.
+       So set the encryption key when the actual encryption starts.
+     */
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+    if (previously_encrypted_upto == 0 && !onlyCreateHeader) {
+        clear_hw_device_encryption_key();
+        if (get_keymaster_hw_fde_passwd(passwd, newpw, crypt_ftr.salt,
+                                           &crypt_ftr))
+            key_index = set_hw_device_encryption_key(passwd, (char*)crypt_ftr.crypto_type_name);
+        else
+            key_index = set_hw_device_encryption_key((const char*)newpw,
+                                (char*) crypt_ftr.crypto_type_name);
+        if (key_index < 0)
+            goto error_shutting_down;
+        else
+            crypt_ftr.flags |= CRYPT_ASCII_PASSWORD_UPDATED;
+
+        put_crypt_ftr_and_key(&crypt_ftr);
+    }
+#endif
+
     if (onlyCreateHeader) {
         sleep(2);
         cryptfs_reboot(reboot);
     }
 
-    if (how == CRYPTO_ENABLE_INPLACE && (!no_ui || rebootEncryption)) {
+    /* Do extra work for a better UX when doing the long inplace encryption */
+    if (how == CRYPTO_ENABLE_INPLACE) {
+        /* Now that /data is unmounted, we need to mount a tmpfs
+         * /data, set a property saying we're doing inplace encryption,
+         * and restart the framework.
+         */
+        if (fs_mgr_do_tmpfs_mount(DATA_MNT_POINT)) {
+            goto error_shutting_down;
+        }
+        /* Tells the framework that inplace encryption is starting */
+        property_set("vold.encrypt_progress", "0");
+
+        /* restart the framework. */
+        /* Create necessary paths on /data */
+        if (prep_data_fs()) {
+            goto error_shutting_down;
+        }
+
+        /* Ugh, shutting down the framework is not synchronous, so until it
+         * can be fixed, this horrible hack will wait a moment for it all to
+         * shut down before proceeding.  Without it, some devices cannot
+         * restart the graphics services.
+         */
+        sleep(2);
+
         /* startup service classes main and late_start */
         property_set("vold.decrypt", "trigger_restart_min_framework");
         SLOGD("Just triggered restart_min_framework\n");
@@ -2907,8 +3281,17 @@ int cryptfs_enable_internal(char *howarg, int crypt_type, const char *passwd,
     }
 
     decrypt_master_key(passwd, decrypted_master_key, &crypt_ftr, 0, 0);
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+    if (is_hw_disk_encryption((char*)crypt_ftr.crypto_type_name) && is_ice_enabled())
+      create_crypto_blk_dev(&crypt_ftr, (unsigned char*)&key_index, real_blkdev, crypto_blkdev,
+                          CRYPTO_BLOCK_DEVICE);
+    else
+      create_crypto_blk_dev(&crypt_ftr, decrypted_master_key, real_blkdev, crypto_blkdev,
+                          CRYPTO_BLOCK_DEVICE);
+#else
     create_crypto_blk_dev(&crypt_ftr, decrypted_master_key, real_blkdev, crypto_blkdev,
                           CRYPTO_BLOCK_DEVICE);
+#endif
 
     /* If we are continuing, check checksums match */
     rc = 0;
@@ -3049,7 +3432,7 @@ int cryptfs_enable_default(char *howarg, int no_ui)
                           DEFAULT_PASSWORD, no_ui);
 }
 
-int cryptfs_changepw(int crypt_type, const char *newpw)
+int cryptfs_changepw(int crypt_type, const char *currentpw, const char *newpw)
 {
     if (e4crypt_is_native()) {
         SLOGE("cryptfs_changepw not valid for file encryption");
@@ -3076,6 +3459,28 @@ int cryptfs_changepw(int crypt_type, const char *newpw)
         return -1;
     }
 
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+    if(is_hw_disk_encryption((char*)crypt_ftr.crypto_type_name))
+        return  cryptfs_changepw_hw_fde(crypt_type, currentpw, newpw);
+    else {
+        crypt_ftr.crypt_type = crypt_type;
+
+        rc = encrypt_master_key(crypt_type == CRYPT_TYPE_DEFAULT ?
+                                     DEFAULT_PASSWORD : newpw,
+                                     crypt_ftr.salt,
+                                     saved_master_key,
+                                     crypt_ftr.master_key,
+                                     &crypt_ftr, false);
+        if (rc) {
+            SLOGE("Encrypt master key failed: %d", rc);
+            return -1;
+        }
+        /* save the key */
+        put_crypt_ftr_and_key(&crypt_ftr);
+
+        return 0;
+    }
+#else
     crypt_ftr.crypt_type = crypt_type;
 
     rc = encrypt_master_key(crypt_type == CRYPT_TYPE_DEFAULT ? DEFAULT_PASSWORD
@@ -3083,7 +3488,7 @@ int cryptfs_changepw(int crypt_type, const char *newpw)
                        crypt_ftr.salt,
                        saved_master_key,
                        crypt_ftr.master_key,
-                       &crypt_ftr);
+                       &crypt_ftr, false);
     if (rc) {
         SLOGE("Encrypt master key failed: %d", rc);
         return -1;
@@ -3092,7 +3497,56 @@ int cryptfs_changepw(int crypt_type, const char *newpw)
     put_crypt_ftr_and_key(&crypt_ftr);
 
     return 0;
+#endif
 }
+
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+int cryptfs_changepw_hw_fde(int crypt_type, const char *currentpw, const char *newpw)
+{
+    struct crypt_mnt_ftr crypt_ftr;
+    int rc;
+    int previous_type;
+
+    /* get key */
+    if (get_crypt_ftr_and_key(&crypt_ftr)) {
+        SLOGE("Error getting crypt footer and key");
+        return -1;
+    }
+
+    previous_type = crypt_ftr.crypt_type;
+    int rc1;
+    unsigned char tmp_curpw[32] = {0};
+    rc1 = get_keymaster_hw_fde_passwd(crypt_ftr.crypt_type == CRYPT_TYPE_DEFAULT ?
+                                      DEFAULT_PASSWORD : currentpw, tmp_curpw,
+                                      crypt_ftr.salt, &crypt_ftr);
+
+    crypt_ftr.crypt_type = crypt_type;
+
+    int ret, rc2;
+    unsigned char tmp_newpw[32] = {0};
+
+    rc2 = get_keymaster_hw_fde_passwd(crypt_type == CRYPT_TYPE_DEFAULT ?
+                                DEFAULT_PASSWORD : newpw , tmp_newpw,
+                                crypt_ftr.salt, &crypt_ftr);
+
+    if (is_hw_disk_encryption((char*)crypt_ftr.crypto_type_name)) {
+        ret = update_hw_device_encryption_key(
+                rc1 ? (previous_type == CRYPT_TYPE_DEFAULT ? DEFAULT_PASSWORD : currentpw) : (const char*)tmp_curpw,
+                rc2 ? (crypt_type == CRYPT_TYPE_DEFAULT ? DEFAULT_PASSWORD : newpw): (const char*)tmp_newpw,
+                                    (char*)crypt_ftr.crypto_type_name);
+        if (ret) {
+            SLOGE("Error updating device encryption hardware key ret %d", ret);
+            return -1;
+        } else {
+            SLOGI("Encryption hardware key updated");
+        }
+    }
+
+    /* save the key */
+    put_crypt_ftr_and_key(&crypt_ftr);
+    return 0;
+}
+#endif
 
 static unsigned int persist_get_max_entries(int encrypted) {
     struct crypt_mnt_ftr crypt_ftr;
@@ -3570,7 +4024,7 @@ int cryptfs_set_password(struct crypt_mnt_ftr* ftr, const char* password,
                          const unsigned char* master_key)
 {
     return encrypt_master_key(password, ftr->salt, master_key, ftr->master_key,
-                              ftr);
+                              ftr, true);
 }
 
 void cryptfs_get_file_encryption_modes(const char **contents_mode_ret,
