@@ -45,6 +45,7 @@
 #include <selinux/selinux.h>
 
 #include "Ext4.h"
+#include "Ext4Crypt.h"
 #include "Utils.h"
 #include "VoldUtil.h"
 
@@ -55,11 +56,7 @@ namespace vold {
 namespace ext4 {
 
 static const char* kResizefsPath = "/system/bin/resize2fs";
-#ifdef TARGET_USES_MKE2FS
 static const char* kMkfsPath = "/system/bin/mke2fs";
-#else
-static const char* kMkfsPath = "/system/bin/make_ext4fs";
-#endif
 static const char* kFsckPath = "/system/bin/e2fsck";
 
 bool IsSupported() {
@@ -170,7 +167,6 @@ status_t Format(const std::string& source, unsigned long numSectors,
     std::vector<std::string> cmd;
     cmd.push_back(kMkfsPath);
 
-#ifdef TARGET_USES_MKE2FS
     cmd.push_back("-b");
     cmd.push_back("4096");
 
@@ -180,28 +176,19 @@ status_t Format(const std::string& source, unsigned long numSectors,
     cmd.push_back("-M");
     cmd.push_back(target);
 
-    cmd.push_back("-O");
-    cmd.push_back("^has_journal");
-
-    cmd.push_back(source);
-
-    if (numSectors)
-        cmd.push_back(StringPrintf("%lu", numSectors * (4096 / 512)));
-#else
-    cmd.push_back("-J");
-
-    cmd.push_back("-a");
-    cmd.push_back(target);
-
-    if (numSectors) {
-        cmd.push_back("-l");
-        cmd.push_back(StringPrintf("%lu", numSectors * 512));
+    std::string options("has_journal,quota");
+    if (e4crypt_is_native()) {
+        options += ",encrypt";
     }
 
-    // Always generate a real UUID
-    cmd.push_back("-u");
+    cmd.push_back("-O");
+    cmd.push_back(options);
+
     cmd.push_back(source);
-#endif
+
+    if (numSectors) {
+        cmd.push_back(StringPrintf("%lu", numSectors * (4096 / 512)));
+    }
 
     return ForkExecvp(cmd);
 }
