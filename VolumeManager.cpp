@@ -359,11 +359,12 @@ void VolumeManager::handleBlockEvent(NetlinkEvent *evt) {
     case NetlinkEvent::Action::kAdd: {
         for (const auto& source : mDiskSources) {
             if (source->matches(eventPath)) {
-                // For now, assume that MMC and virtio-blk (the latter is
-                // emulator-specific; see Disk.cpp for details) devices are SD,
-                // and that everything else is USB
+                // For now, assume that MMC, virtio-blk (the latter is
+                // emulator-specific; see Disk.cpp for details) and UFS card
+                // devices are SD, and that everything else is USB
                 int flags = source->getFlags();
                 if (major == kMajorBlockMmc
+                    || (eventPath.find("ufs") != std::string::npos)
                     || (android::vold::IsRunningInEmulator()
                     && major >= (int) kMajorBlockExperimentalMin
                     && major <= (int) kMajorBlockExperimentalMax)) {
