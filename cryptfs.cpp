@@ -317,7 +317,8 @@ static int keymaster_sign_object(struct crypt_mnt_ftr *ftr,
             return -1;
     }
     return keymaster_sign_object_for_cryptfs_scrypt(ftr->keymaster_blob, ftr->keymaster_blob_size,
-            KEYMASTER_CRYPTFS_RATE_LIMIT, to_sign, to_sign_size, signature, signature_size);
+            KEYMASTER_CRYPTFS_RATE_LIMIT, to_sign, to_sign_size, signature, signature_size,
+            ftr->keymaster_blob, KEYMASTER_BLOB_SIZE, &ftr->keymaster_blob_size);
 }
 
 /* Store password when userdata is successfully decrypted and mounted.
