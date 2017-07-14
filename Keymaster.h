@@ -154,7 +154,10 @@ int keymaster_sign_object_for_cryptfs_scrypt(const uint8_t* key_blob,
                                              const uint8_t* object,
                                              const size_t object_size,
                                              uint8_t** signature_buffer,
-                                             size_t* signature_buffer_size);
+                                             size_t* signature_buffer_size,
+                                             uint8_t* key_buffer,
+                                             uint32_t key_buffer_size,
+                                             uint32_t* key_out_size);
 
 __END_DECLS
 

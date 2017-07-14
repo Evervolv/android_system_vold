@@ -258,7 +258,10 @@ int keymaster_sign_object_for_cryptfs_scrypt(const uint8_t* key_blob,
                                              const uint8_t* object,
                                              const size_t object_size,
                                              uint8_t** signature_buffer,
-                                             size_t* signature_buffer_size)
+                                             size_t* signature_buffer_size,
+                                             uint8_t* key_buffer,
+                                             uint32_t key_buffer_size,
+                                             uint32_t* key_out_size)
 {
     Keymaster dev;
     if (!dev) {
@@ -285,6 +288,24 @@ int keymaster_sign_object_for_cryptfs_scrypt(const uint8_t* key_blob,
         if (op.errorCode() == ErrorCode::KEY_RATE_LIMIT_EXCEEDED) {
             sleep(ratelimit);
             continue;
+        } else if (op.errorCode() == ErrorCode::KEY_REQUIRES_UPGRADE) {
+            std::string newKey;
+            bool ret = dev.upgradeKey(key, paramBuilder, &newKey);
+            if(ret == false) {
+                LOG(ERROR) << "Error upgradeKey: ";
+                return -1;
+            }
+
+            if (key_out_size) {
+                *key_out_size = newKey.size();
+            }
+
+            if (key_buffer_size < newKey.size()) {
+                return -1;
+            }
+
+            std::copy(newKey.data(), newKey.data() + newKey.size(), key_buffer);
+            key = newKey;
         } else break;
     }
 
