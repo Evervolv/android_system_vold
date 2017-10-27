@@ -74,11 +74,11 @@ status_t Mount(const std::string& source, const std::string& target, bool ro,
             ownerUid, ownerGid, permMask, permMask);
 
     if (!executable)
-        strcat(mountData, ",noexec");
+        strlcat(mountData, ",noexec", sizeof(mountData));
     if (ro)
-        strcat(mountData, ",ro");
+        strlcat(mountData, ",ro", sizeof(mountData));
     if (remount)
-        strcat(mountData, ",remount");
+        strlcat(mountData, ",remount", sizeof(mountData));
 
     std::vector<std::string> cmd;
     cmd.push_back(kMountPath);
