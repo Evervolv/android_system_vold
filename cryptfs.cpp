@@ -1775,6 +1775,9 @@ static void cryptfs_trigger_restart_min_framework() {
 /* returns < 0 on failure */
 static int cryptfs_restart_internal(int restart_main) {
     char crypto_blkdev[MAXPATHLEN];
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+    char blkdev[MAXPATHLEN];
+#endif
     int rc = -1;
     static int restart_successful = 0;
 
@@ -1833,6 +1836,24 @@ static int cryptfs_restart_internal(int restart_main) {
      * the tmpfs filesystem, and mount the real one.
      */
 
+#if defined(CONFIG_HW_DISK_ENCRYPTION)
+#if defined(CONFIG_HW_DISK_ENCRYPT_PERF)
+    if (is_ice_enabled()) {
+        fs_mgr_get_crypt_info(fstab_default, 0, blkdev, sizeof(blkdev));
+        if (set_ice_param(START_ENCDEC)) {
+             SLOGE("Failed to set ICE data");
+             return -1;
+        }
+    }
+#else
+    property_get("ro.crypto.fs_crypto_blkdev", blkdev, "");
+    if (strlen(blkdev) == 0) {
+         SLOGE("fs_crypto_blkdev not set\n");
+         return -1;
+    }
+    if (!(rc = wait_and_unmount(DATA_MNT_POINT, true))) {
+#endif
+#else
     property_get("ro.crypto.fs_crypto_blkdev", crypto_blkdev, "");
     if (strlen(crypto_blkdev) == 0) {
         SLOGE("fs_crypto_blkdev not set\n");
@@ -1840,6 +1861,7 @@ static int cryptfs_restart_internal(int restart_main) {
     }
 
     if (!(rc = wait_and_unmount(DATA_MNT_POINT, true))) {
+#endif
         /* If ro.crypto.readonly is set to 1, mount the decrypted
          * filesystem readonly.  This is used when /data is mounted by
          * recovery mode.
@@ -1866,13 +1888,22 @@ static int cryptfs_restart_internal(int restart_main) {
             return -1;
         }
         bool needs_cp = android::vold::cp_needsCheckpoint();
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+        while ((mount_rc = fs_mgr_do_mount(&fstab_default, DATA_MNT_POINT, blkdev, 0,
+                                           needs_cp)) != 0) {
+#else
         while ((mount_rc = fs_mgr_do_mount(&fstab_default, DATA_MNT_POINT, crypto_blkdev, 0,
                                            needs_cp)) != 0) {
+#endif
             if (mount_rc == FS_MGR_DOMNT_BUSY) {
                 /* TODO: invoke something similar to
                    Process::killProcessWithOpenFiles(DATA_MNT_POINT,
                                    retries > RETRY_MOUNT_ATTEMPT/2 ? 1 : 2 ) */
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+                SLOGI("Failed to mount %s because it is busy - waiting", blkdev);
+#else
                 SLOGI("Failed to mount %s because it is busy - waiting", crypto_blkdev);
+#endif
                 if (--retries) {
                     sleep(RETRY_MOUNT_DELAY_SECONDS);
                 } else {
@@ -1918,7 +1949,9 @@ static int cryptfs_restart_internal(int restart_main) {
 
         /* Give it a few moments to get started */
         sleep(1);
+#ifndef CONFIG_HW_DISK_ENCRYPT_PERF
     }
+#endif
 
     if (rc == 0) {
         restart_successful = 1;
@@ -2018,12 +2051,14 @@ static int test_mount_hw_encrypted_fs(struct crypt_mnt_ftr* crypt_ftr,
         }
         else {
             if (is_ice_enabled()) {
+#ifndef CONFIG_HW_DISK_ENCRYPT_PERF
                 if (create_crypto_blk_dev(crypt_ftr, (unsigned char*)&key_index,
                                           real_blkdev, crypto_blkdev, label, 0)) {
                     SLOGE("Error creating decrypted block device");
                     rc = -1;
                     goto errout;
                 }
+#endif
             } else {
                 if (create_crypto_blk_dev(crypt_ftr, decrypted_master_key,
                                           real_blkdev, crypto_blkdev, label, 0)) {
@@ -2043,6 +2078,9 @@ static int test_mount_hw_encrypted_fs(struct crypt_mnt_ftr* crypt_ftr,
 
         /* Save the name of the crypto block device
          * so we can mount it when restarting the framework. */
+#ifdef CONFIG_HW_DISK_ENCRYPT_PERF
+        if (!is_ice_enabled())
+#endif
         property_set("ro.crypto.fs_crypto_blkdev", crypto_blkdev);
         master_key_saved = 1;
     }
@@ -2769,8 +2807,12 @@ int cryptfs_enable_internal(int crypt_type, const char* passwd, int no_ui) {
     decrypt_master_key(passwd, decrypted_master_key, &crypt_ftr, 0, 0);
 #ifdef CONFIG_HW_DISK_ENCRYPTION
     if (is_hw_disk_encryption((char*)crypt_ftr.crypto_type_name) && is_ice_enabled())
+#ifdef CONFIG_HW_DISK_ENCRYPT_PERF
+      strlcpy(crypto_blkdev, real_blkdev, sizeof(crypto_blkdev));
+#else
       create_crypto_blk_dev(&crypt_ftr, (unsigned char*)&key_index, real_blkdev.c_str(), crypto_blkdev,
                           CRYPTO_BLOCK_DEVICE, 0);
+#endif
     else
       create_crypto_blk_dev(&crypt_ftr, decrypted_master_key, real_blkdev.c_str(), crypto_blkdev,
                           CRYPTO_BLOCK_DEVICE, 0);
@@ -2783,6 +2825,12 @@ int cryptfs_enable_internal(int crypt_type, const char* passwd, int no_ui) {
     rc = 0;
     if (previously_encrypted_upto) {
         __le8 hash_first_block[SHA256_DIGEST_LENGTH];
+#if defined(CONFIG_HW_DISK_ENCRYPTION) && defined(CONFIG_HW_DISK_ENCRYPT_PERF)
+        if (set_ice_param(START_ENCDEC)) {
+	   SLOGE("Failed to set ICE data");
+           goto error_shutting_down;
+	}
+#endif
         rc = cryptfs_SHA256_fileblock(crypto_blkdev, hash_first_block);
 
         if (!rc &&
@@ -2792,11 +2840,23 @@ int cryptfs_enable_internal(int crypt_type, const char* passwd, int no_ui) {
         }
     }
 
+#if defined(CONFIG_HW_DISK_ENCRYPTION) && defined(CONFIG_HW_DISK_ENCRYPT_PERF)
+    if (set_ice_param(START_ENC)) {
+        SLOGE("Failed to set ICE data");
+        goto error_shutting_down;
+    }
+#endif
     if (!rc) {
         rc = cryptfs_enable_all_volumes(&crypt_ftr, crypto_blkdev, real_blkdev.data(),
                                         previously_encrypted_upto);
     }
 
+#if defined(CONFIG_HW_DISK_ENCRYPTION) && defined(CONFIG_HW_DISK_ENCRYPT_PERF)
+    if (set_ice_param(START_ENCDEC)) {
+        SLOGE("Failed to set ICE data");
+        goto error_shutting_down;
+    }
+#endif
     /* Calculate checksum if we are not finished */
     if (!rc && crypt_ftr.encrypted_upto != crypt_ftr.fs_size) {
         rc = cryptfs_SHA256_fileblock(crypto_blkdev, crypt_ftr.hash_first_block);
@@ -2807,7 +2867,12 @@ int cryptfs_enable_internal(int crypt_type, const char* passwd, int no_ui) {
     }
 
     /* Undo the dm-crypt mapping whether we succeed or not */
+#if defined(CONFIG_HW_DISK_ENCRYPTION) && defined(CONFIG_HW_DISK_ENCRYPT_PERF)
+    if (!is_ice_enabled())
+       delete_crypto_blk_dev(CRYPTO_BLOCK_DEVICE);
+#else
     delete_crypto_blk_dev(CRYPTO_BLOCK_DEVICE);
+#endif
 
     if (!rc) {
         /* Success */

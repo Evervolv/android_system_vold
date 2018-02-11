@@ -154,6 +154,9 @@ cc_library_static {
             header_libs: ["libcryptfs_hw_headers"],
             shared_libs: ["libcryptfs_hw"],
         },
+        device_support_hwfde_perf: {
+            cflags: ["-DCONFIG_HW_DISK_ENCRYPT_PERF"],
+        },
     },
     shared_libs: [
         "android.hardware.health.storage@1.0",
