@@ -24,6 +24,7 @@
 #include <cutils/multiuser.h>
 #include <selinux/selinux.h>
 
+#include <chrono>
 #include <vector>
 #include <string>
 
@@ -121,6 +122,9 @@ status_t RestoreconRecursive(const std::string& path);
 
 // TODO: promote to android::base
 bool Readlinkat(int dirfd, const std::string& path, std::string* result);
+
+bool WaitForFile(const std::string& filename,
+        const std::chrono::milliseconds relativeTimeout);
 
 /* Checks if Android is running in QEMU */
 bool IsRunningInEmulator();
