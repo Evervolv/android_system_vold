@@ -280,17 +280,23 @@ static int cryptfs_enable_inplace_ext4(const char* crypto_blkdev, const char* re
     }
 
     LOG(DEBUG) << "Opening" << crypto_blkdev;
-    // Wait until the block device appears.  Re-use the mount retry values since it is reasonable.
-    while ((data.cryptofd = open(crypto_blkdev, O_WRONLY | O_CLOEXEC)) < 0) {
-        if (--retries) {
-            PLOG(ERROR) << "Error opening crypto_blkdev " << crypto_blkdev
-                        << " for ext4 inplace encrypt, retrying";
-            sleep(RETRY_MOUNT_DELAY_SECONDS);
-        } else {
-            PLOG(ERROR) << "Error opening crypto_blkdev " << crypto_blkdev
-                        << " for ext4 inplace encrypt";
-            rc = ENABLE_INPLACE_ERR_DEV;
-            goto errout;
+    if (!strncmp(real_blkdev, crypto_blkdev, strlen(real_blkdev)))
+        data.cryptofd = data.realfd;
+    else {
+        // Wait until the block device appears.  Re-use the mount retry values since it is reasonable.
+        while ((data.cryptofd = open(crypto_blkdev, O_WRONLY|O_CLOEXEC)) < 0) {
+            if (--retries) {
+                PLOG(ERROR) << "Error opening crypto_blkdev " << crypto_blkdev
+                            << " for ext4 inplace encrypt. err=" << errno
+                            << "(" << strerror(errno) << "), retrying";
+                sleep(RETRY_MOUNT_DELAY_SECONDS);
+            } else {
+                PLOG(ERROR) << "Error opening crypto_blkdev " << crypto_blkdev
+                            << " for ext4 inplace encrypt. err=" << errno
+                            << "(" << strerror(errno) << "), retrying";
+                rc = ENABLE_INPLACE_ERR_DEV;
+                goto errout;
+            }
         }
     }
 
@@ -338,7 +344,8 @@ static int cryptfs_enable_inplace_ext4(const char* crypto_blkdev, const char* re
 
 errout:
     close(data.realfd);
-    close(data.cryptofd);
+    if (strncmp(real_blkdev, crypto_blkdev, strlen(real_blkdev)))
+       close(data.cryptofd);
 
     return rc;
 }
@@ -414,11 +421,16 @@ static int cryptfs_enable_inplace_f2fs(const char* crypto_blkdev, const char* re
         PLOG(ERROR) << "Error opening real_blkdev " << real_blkdev << " for f2fs inplace encrypt";
         goto errout;
     }
-    if ((data.cryptofd = open64(crypto_blkdev, O_WRONLY | O_CLOEXEC)) < 0) {
-        PLOG(ERROR) << "Error opening crypto_blkdev " << crypto_blkdev
-                    << " for f2fs inplace encrypt";
-        rc = ENABLE_INPLACE_ERR_DEV;
-        goto errout;
+    if (!strncmp(real_blkdev, crypto_blkdev, strlen(real_blkdev)))
+        data.cryptofd = data.realfd;
+    else {
+        if ((data.cryptofd = open64(crypto_blkdev, O_WRONLY|O_CLOEXEC)) < 0) {
+            PLOG(ERROR) << "Error opening crypto_blkdev " << crypto_blkdev
+                        << " for f2fs inplace encrypt. err=" << errno
+                        << "(" << strerror(errno) << "), retrying";
+            rc = ENABLE_INPLACE_ERR_DEV;
+            goto errout;
+        }
     }
 
     f2fs_info = generate_f2fs_info(data.realfd);
@@ -467,7 +479,8 @@ errout:
     free(f2fs_info);
     free(data.buffer);
     close(data.realfd);
-    close(data.cryptofd);
+    if (strncmp(real_blkdev, crypto_blkdev, strlen(real_blkdev)))
+        close(data.cryptofd);
 
     return rc;
 }
@@ -488,10 +501,16 @@ static int cryptfs_enable_inplace_full(const char* crypto_blkdev, const char* re
         return ENABLE_INPLACE_ERR_OTHER;
     }
 
-    if ((cryptofd = open(crypto_blkdev, O_WRONLY | O_CLOEXEC)) < 0) {
-        PLOG(ERROR) << "Error opening crypto_blkdev " << crypto_blkdev << " for inplace encrypt";
-        close(realfd);
-        return ENABLE_INPLACE_ERR_DEV;
+    if (!strncmp(real_blkdev, crypto_blkdev, strlen(real_blkdev)))
+        cryptofd = realfd;
+    else {
+        if ((cryptofd = open(crypto_blkdev, O_WRONLY|O_CLOEXEC)) < 0) {
+            PLOG(ERROR) << "Error opening crypto_blkdev " << crypto_blkdev
+                        << " for inplace encrypt. err=" << errno
+                        << "(" << strerror(errno) << "), retrying";
+            close(realfd);
+            return ENABLE_INPLACE_ERR_DEV;
+        }
     }
 
     /* This is pretty much a simple loop of reading 4K, and writing 4K.
@@ -513,9 +532,11 @@ static int cryptfs_enable_inplace_full(const char* crypto_blkdev, const char* re
         goto errout;
     }
 
-    if (lseek64(cryptofd, i * CRYPT_SECTOR_SIZE, SEEK_SET) < 0) {
-        PLOG(ERROR) << "Cannot seek to previously encrypted point on " << crypto_blkdev;
-        goto errout;
+    if (strncmp(real_blkdev, crypto_blkdev, strlen(real_blkdev))) {
+        if (lseek64(cryptofd, i * CRYPT_SECTOR_SIZE, SEEK_SET) < 0) {
+            PLOG(ERROR) << "Cannot seek to previously encrypted point on " << crypto_blkdev;
+            goto errout;
+        }
     }
 
     for (; i < size && i % CRYPT_SECTORS_PER_BUFSIZE != 0; ++i) {
@@ -579,7 +600,8 @@ static int cryptfs_enable_inplace_full(const char* crypto_blkdev, const char* re
 
 errout:
     close(realfd);
-    close(cryptofd);
+    if (strncmp(real_blkdev, crypto_blkdev, strlen(real_blkdev)))
+        close(cryptofd);
 
     return rc;
 }
