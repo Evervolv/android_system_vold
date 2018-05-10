@@ -626,11 +626,12 @@ binder::Status VoldNativeService::fdeEnable(int32_t passwordType, const std::str
 }
 
 binder::Status VoldNativeService::fdeChangePassword(int32_t passwordType,
+                                                    const std::string& currentPassword,
                                                     const std::string& password) {
     ENFORCE_UID(AID_SYSTEM);
     ACQUIRE_CRYPT_LOCK;
 
-    return translate(cryptfs_changepw(passwordType, password.c_str()));
+    return translate(cryptfs_changepw(passwordType, currentPassword.c_str(), password.c_str()));
 }
 
 binder::Status VoldNativeService::fdeVerifyPassword(const std::string& password) {

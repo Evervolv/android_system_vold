@@ -149,6 +149,11 @@ cc_library_static {
         debuggable: {
             cppflags: ["-D__ANDROID_DEBUGGABLE__"],
         },
+        device_support_hwfde: {
+            cflags: ["-DCONFIG_HW_DISK_ENCRYPTION"],
+            header_libs: ["libcryptfs_hw_headers"],
+            shared_libs: ["libcryptfs_hw"],
+        },
     },
     shared_libs: [
         "android.hardware.health.storage@1.0",
@@ -174,6 +179,9 @@ cc_binary {
                 "libarcappfuse",
                 "libarcobbvolume",
             ],
+        },
+        device_support_hwfde: {
+            shared_libs: ["libcryptfs_hw"],
         },
     },
     init_rc: [
