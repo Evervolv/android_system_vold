@@ -66,6 +66,14 @@
                                      complete. On next cryptkeeper entry, match
                                      the password. If it matches fix the master
                                      key and remove this flag. */
+#ifdef CONFIG_HW_DISK_ENCRYPTION
+/* This flag is used to transition from L->M upgrade. L release passed
+ * a byte for every nible of user password while M release is passing
+ * ascii value of user password.
+ * Random flag value is chosen so that it does not conflict with other use cases
+ */
+#define CRYPT_ASCII_PASSWORD_UPDATED 0x1000
+#endif
 
 /* Allowed values for type in the structure below */
 #define CRYPT_TYPE_PASSWORD 0 /* master_key is encrypted with a password
@@ -233,7 +241,7 @@ int cryptfs_check_passwd(const char* pw);
 int cryptfs_verify_passwd(const char* pw);
 int cryptfs_restart(void);
 int cryptfs_enable(int type, const char* passwd, int no_ui);
-int cryptfs_changepw(int type, const char* newpw);
+int cryptfs_changepw(int type, const char *currentpw, const char* newpw);
 int cryptfs_enable_default(int no_ui);
 int cryptfs_setup_ext_volume(const char* label, const char* real_blkdev, const unsigned char* key,
                              char* out_crypto_blkdev);

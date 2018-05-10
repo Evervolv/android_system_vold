@@ -82,7 +82,7 @@ public:
     binder::Status fdeEnable(int32_t passwordType,
             const std::string& password, int32_t encryptionFlags);
     binder::Status fdeChangePassword(int32_t passwordType,
-            const std::string& password);
+            const std::string& currentPassword, const std::string& password);
     binder::Status fdeVerifyPassword(const std::string& password);
     binder::Status fdeGetField(const std::string& key, std::string* _aidl_return);
     binder::Status fdeSetField(const std::string& key, const std::string& value);

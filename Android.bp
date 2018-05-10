@@ -138,6 +138,11 @@ cc_library_static {
                 "libarcobbvolume",
             ],
         },
+        device_support_hwfde: {
+            cflags: ["-DCONFIG_HW_DISK_ENCRYPTION"],
+            header_libs: ["libcryptfs_hw_headers"],
+            shared_libs: ["libcryptfs_hw"],
+        },
     },
 }
 
@@ -156,6 +161,9 @@ cc_binary {
                 "arc_services_aidl",
                 "libarcobbvolume",
             ],
+        },
+        device_support_hwfde: {
+            shared_libs: ["libcryptfs_hw"],
         },
     },
     init_rc: [
