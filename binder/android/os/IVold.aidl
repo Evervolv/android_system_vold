@@ -85,6 +85,7 @@ interface IVold {
     void destroyUserKey(int userId);
 
     void addUserKeyAuth(int userId, int userSerial, @utf8InCpp String token, @utf8InCpp String secret);
+    void clearUserKeyAuth(int userId, int userSerial, @utf8InCpp String token, @utf8InCpp String secret);
     void fixateNewestUserKeyAuth(int userId);
 
     void unlockUserKey(int userId, int userSerial, @utf8InCpp String token, @utf8InCpp String secret);
