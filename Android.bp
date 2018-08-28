@@ -138,13 +138,15 @@ cc_library_static {
                 "libarcobbvolume",
             ],
         },
-        device_support_hwfde: {
-            cflags: ["-DCONFIG_HW_DISK_ENCRYPTION"],
-            header_libs: ["libcryptfs_hw_headers"],
-            shared_libs: ["libcryptfs_hw"],
-        },
-        device_support_hwfde_perf: {
-            cflags: ["-DCONFIG_HW_DISK_ENCRYPT_PERF"],
+        evervolv: {
+            device_support_hwfde: {
+                cflags: ["-DCONFIG_HW_DISK_ENCRYPTION"],
+                header_libs: ["libcryptfs_hw_headers"],
+                shared_libs: ["libcryptfs_hw"],
+            },
+            device_support_hwfde_perf: {
+                cflags: ["-DCONFIG_HW_DISK_ENCRYPT_PERF"],
+            },
         },
     },
 }
@@ -165,8 +167,10 @@ cc_binary {
                 "libarcobbvolume",
             ],
         },
-        device_support_hwfde: {
-            shared_libs: ["libcryptfs_hw"],
+        evervolv: {
+            device_support_hwfde: {
+                shared_libs: ["libcryptfs_hw"],
+            },
         },
     },
     init_rc: [
