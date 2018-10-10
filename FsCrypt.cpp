@@ -491,7 +491,6 @@ static void drop_caches() {
 }
 
 static bool evict_ce_key(userid_t user_id) {
-    s_ce_keys.erase(user_id);
     bool success = true;
     std::string raw_ref;
     // If we haven't loaded the CE key, no need to evict it.
@@ -499,6 +498,23 @@ static bool evict_ce_key(userid_t user_id) {
         success &= android::vold::evictKey(raw_ref);
         drop_caches();
     }
+
+    if(is_wrapped_key_supported()) {
+        KeyBuffer key;
+        key = s_ce_keys[user_id];
+
+        std::string keystr(key.data(), key.size());
+        Keymaster keymaster;
+
+        if (!keymaster) {
+            s_ce_keys.erase(user_id);
+            s_ce_key_raw_refs.erase(user_id);
+            return false;
+        }
+        keymaster.deleteKey(keystr);
+    }
+
+    s_ce_keys.erase(user_id);
     s_ce_key_raw_refs.erase(user_id);
     return success;
 }
