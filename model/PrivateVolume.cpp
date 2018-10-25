@@ -36,6 +36,9 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+#define RETRY_MOUNT_ATTEMPTS 10
+#define RETRY_MOUNT_DELAY_SECONDS 1
+
 using android::base::StringPrintf;
 
 namespace android {
@@ -84,6 +87,26 @@ status_t PrivateVolume::doCreate() {
         return -EIO;
     }
 
+    int fd = 0;
+    int retries = RETRY_MOUNT_ATTEMPTS;
+    while ((fd = open(crypto_blkdev, O_WRONLY|O_CLOEXEC)) < 0) {
+        if (retries > 0) {
+            retries--;
+            PLOG(ERROR) << "Error opening crypto_blkdev " << crypto_blkdev
+                            << " for private volume. err=" << errno
+                            << "(" << strerror(errno) << "), retrying for the "
+                            << RETRY_MOUNT_ATTEMPTS - retries << " time";
+            sleep(RETRY_MOUNT_DELAY_SECONDS);
+        } else {
+            PLOG(ERROR) << "Error opening crypto_blkdev " << crypto_blkdev
+                            << " for private volume. err=" << errno
+                            << "(" << strerror(errno) << "), retried "
+                            << RETRY_MOUNT_ATTEMPTS << " times";
+            close(fd);
+            return -EIO;
+        }
+    }
+    close(fd);
     return OK;
 }
 
