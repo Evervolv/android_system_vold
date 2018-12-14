@@ -282,6 +282,10 @@ static bool init_data_file_encryption_options() {
                       "this flag from the device's fstab";
         return false;
     }
+    if (s_data_options.version == 1) {
+        s_data_options.use_hw_wrapped_key =
+            GetEntryForMountPoint(&fstab_default, DATA_MNT_POINT)->fs_mgr_flags.wrapped_key;
+    }
     return true;
 }
 
@@ -324,6 +328,10 @@ static bool get_volume_file_encryption_options(EncryptionOptions* options) {
         return false;
     }
     return true;
+}
+
+bool is_metadata_wrapped_key_supported() {
+    return GetEntryForMountPoint(&fstab_default, METADATA_MNT_POINT)->fs_mgr_flags.wrapped_key;
 }
 
 // Prepare a directory without assigning it an encryption policy.  The directory
