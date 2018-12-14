@@ -150,8 +150,8 @@ bool Keymaster::generateKey(const km::AuthorizationSet& inParams, std::string* k
     return true;
 }
 
-bool Keymaster::exportKey(const KeyBuffer& kmKey, std::string* key) {
-    bool ret = false;
+km::ErrorCode Keymaster::exportKey(const KeyBuffer& kmKey, std::string* key) {
+    km::ErrorCode ret = km::ErrorCode::UNKNOWN_ERROR;
     ks2::KeyDescriptor storageKey = {
             .domain = ks2::Domain::BLOB,
             .alias = std::nullopt,
@@ -168,7 +168,7 @@ bool Keymaster::exportKey(const KeyBuffer& kmKey, std::string* key) {
 
     // TODO b/185811713 store the upgraded key blob if provided and delete the old key blob.
 
-    ret = true;
+    ret = km::ErrorCode::OK;
 out:
     zeroize_vector(ephemeral_key_response.ephemeralKey);
     zeroize_vector(storageKey.blob.value());

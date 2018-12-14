@@ -114,7 +114,7 @@ class Keymaster {
     // Generate a key using keystore2 from the given params.
     bool generateKey(const km::AuthorizationSet& inParams, std::string* key);
     // Exports a keystore2 key with STORAGE_KEY tag wrapped with a per-boot ephemeral key
-    bool exportKey(const KeyBuffer& kmKey, std::string* key);
+    km::ErrorCode exportKey(const KeyBuffer& kmKey, std::string* key);
     // If supported, permanently delete a key from the keymint device it belongs to.
     bool deleteKey(const std::string& key);
     // Begin a new cryptographic operation, collecting output parameters if pointer is non-null
