@@ -65,6 +65,8 @@ static const char* kFn_secdiscardable = "secdiscardable";
 static const char* kFn_version = "version";
 // Note: old key directories may contain a file named "stretching".
 
+static const int32_t KM_TAG_FBE_ICE = static_cast<int32_t>(7 << 28) | 16201;
+
 namespace {
 
 // Storage binding info for ensuring key encryption keys include a
@@ -139,6 +141,12 @@ bool generateWrappedStorageKey(KeyBuffer* key) {
     std::string key_temp;
     auto paramBuilder = km::AuthorizationSetBuilder().AesEncryptionKey(AES_KEY_BYTES * 8);
     paramBuilder.Authorization(km::TAG_STORAGE_KEY);
+
+    km::KeyParameter param1;
+    param1.tag = (km::Tag) (KM_TAG_FBE_ICE);
+    param1.value = km::KeyParameterValue::make<km::KeyParameterValue::boolValue>(true);
+    paramBuilder.push_back(param1);
+
     if (!keystore.generateKey(paramBuilder, &key_temp)) return false;
     *key = KeyBuffer(key_temp.size());
     memcpy(reinterpret_cast<void*>(key->data()), key_temp.c_str(), key->size());
