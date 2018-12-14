@@ -141,8 +141,11 @@ bool generateWrappedStorageKey(KeyBuffer* key) {
     if (!keymaster) return false;
     std::string key_temp;
     auto paramBuilder = km::AuthorizationSetBuilder().AesEncryptionKey(AES_KEY_BYTES * 8);
-    paramBuilder.Authorization(km::TAG_ROLLBACK_RESISTANCE);
-    paramBuilder.Authorization(km::TAG_STORAGE_KEY);
+    km::KeyParameter param1;
+    param1.tag = static_cast<::android::hardware::keymaster::V4_0::Tag>(
+        android::hardware::keymaster::V4_0::KM_TAG_FBE_ICE);
+    param1.f.boolValue = true;
+    paramBuilder.push_back(param1);
     if (!keymaster.generateKey(paramBuilder, &key_temp)) return false;
     *key = KeyBuffer(key_temp.size());
     memcpy(reinterpret_cast<void*>(key->data()), key_temp.c_str(), key->size());
@@ -154,7 +157,20 @@ bool exportWrappedStorageKey(const KeyBuffer& kmKey, KeyBuffer* key) {
     if (!keymaster) return false;
     std::string key_temp;
 
-    if (!keymaster.exportKey(kmKey, &key_temp)) return false;
+    auto ret = keymaster.exportKey(kmKey, &key_temp);
+    if (ret != km::ErrorCode::OK) {
+        if (ret == km::ErrorCode::KEY_REQUIRES_UPGRADE) {
+           std::string kmKeyStr(reinterpret_cast<const char*>(kmKey.data()), kmKey.size());
+           std::string Keystr;
+           if (!keymaster.upgradeKey(kmKeyStr, km::AuthorizationSet(), &Keystr)) return false;
+           KeyBuffer upgradedKey = KeyBuffer(Keystr.size());
+           memcpy(reinterpret_cast<void*>(upgradedKey.data()), Keystr.c_str(), upgradedKey.size());
+           ret = keymaster.exportKey(upgradedKey, &key_temp);
+           if (ret != km::ErrorCode::OK) return false;
+        } else {
+           return false;
+        }
+    }
     *key = KeyBuffer(key_temp.size());
     memcpy(reinterpret_cast<void*>(key->data()), key_temp.c_str(), key->size());
     return true;
