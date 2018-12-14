@@ -253,6 +253,10 @@ static bool get_data_file_encryption_options(EncryptionOptions* options) {
                       "this flag from the device's fstab";
         return false;
     }
+    if (options->version == 1) {
+        options->use_hw_wrapped_key =
+            GetEntryForMountPoint(&fstab_default, DATA_MNT_POINT)->fs_mgr_flags.wrapped_key;
+    }
     return true;
 }
 
@@ -291,6 +295,10 @@ static bool get_volume_file_encryption_options(EncryptionOptions* options) {
         return false;
     }
     return true;
+}
+
+bool is_metadata_wrapped_key_supported() {
+    return GetEntryForMountPoint(&fstab_default, METADATA_MNT_POINT)->fs_mgr_flags.wrapped_key;
 }
 
 static bool read_and_install_user_ce_key(userid_t user_id,
