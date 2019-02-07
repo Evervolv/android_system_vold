@@ -1774,9 +1774,9 @@ static void cryptfs_trigger_restart_min_framework() {
 
 /* returns < 0 on failure */
 static int cryptfs_restart_internal(int restart_main) {
-    char crypto_blkdev[MAXPATHLEN];
+    std::string crypto_blkdev;
 #ifdef CONFIG_HW_DISK_ENCRYPTION
-    char blkdev[MAXPATHLEN];
+    std::string blkdev;
 #endif
     int rc = -1;
     static int restart_successful = 0;
@@ -1839,23 +1839,23 @@ static int cryptfs_restart_internal(int restart_main) {
 #if defined(CONFIG_HW_DISK_ENCRYPTION)
 #if defined(CONFIG_HW_DISK_ENCRYPT_PERF)
     if (is_ice_enabled()) {
-        fs_mgr_get_crypt_info(fstab_default, 0, blkdev, sizeof(blkdev));
+        get_crypt_info(nullptr, &blkdev);
         if (set_ice_param(START_ENCDEC)) {
              SLOGE("Failed to set ICE data");
              return -1;
         }
     }
 #else
-    property_get("ro.crypto.fs_crypto_blkdev", blkdev, "");
-    if (strlen(blkdev) == 0) {
+    blkdev = android::base::GetProperty("ro.crypto.fs_crypto_blkdev", "");
+    if (blkdev.empty()) {
          SLOGE("fs_crypto_blkdev not set\n");
          return -1;
     }
     if (!(rc = wait_and_unmount(DATA_MNT_POINT, true))) {
 #endif
 #else
-    property_get("ro.crypto.fs_crypto_blkdev", crypto_blkdev, "");
-    if (strlen(crypto_blkdev) == 0) {
+    crypto_blkdev = android::base::GetProperty("ro.crypto.fs_crypto_blkdev", "");
+    if (crypto_blkdev.empty()) {
         SLOGE("fs_crypto_blkdev not set\n");
         return -1;
     }
@@ -1889,10 +1889,10 @@ static int cryptfs_restart_internal(int restart_main) {
         }
         bool needs_cp = android::vold::cp_needsCheckpoint();
 #ifdef CONFIG_HW_DISK_ENCRYPTION
-        while ((mount_rc = fs_mgr_do_mount(&fstab_default, DATA_MNT_POINT, blkdev, 0,
+        while ((mount_rc = fs_mgr_do_mount(&fstab_default, DATA_MNT_POINT, blkdev.data(), 0,
                                            needs_cp)) != 0) {
 #else
-        while ((mount_rc = fs_mgr_do_mount(&fstab_default, DATA_MNT_POINT, crypto_blkdev, 0,
+        while ((mount_rc = fs_mgr_do_mount(&fstab_default, DATA_MNT_POINT, crypto_blkdev.data(), 0,
                                            needs_cp)) != 0) {
 #endif
             if (mount_rc == FS_MGR_DOMNT_BUSY) {
@@ -1900,9 +1900,9 @@ static int cryptfs_restart_internal(int restart_main) {
                    Process::killProcessWithOpenFiles(DATA_MNT_POINT,
                                    retries > RETRY_MOUNT_ATTEMPT/2 ? 1 : 2 ) */
 #ifdef CONFIG_HW_DISK_ENCRYPTION
-                SLOGI("Failed to mount %s because it is busy - waiting", blkdev);
+                SLOGI("Failed to mount %s because it is busy - waiting", blkdev.c_str());
 #else
-                SLOGI("Failed to mount %s because it is busy - waiting", crypto_blkdev);
+                SLOGI("Failed to mount %s because it is busy - waiting", crypto_blkdev.c_str());
 #endif
                 if (--retries) {
                     sleep(RETRY_MOUNT_DELAY_SECONDS);
@@ -2033,14 +2033,14 @@ static int test_mount_hw_encrypted_fs(struct crypt_mnt_ftr* crypt_ftr,
     /* Allocate enough space for a 256 bit key, but we may use less */
     unsigned char decrypted_master_key[32];
     char crypto_blkdev[MAXPATHLEN];
-    char real_blkdev[MAXPATHLEN];
+    std::string real_blkdev;
     unsigned int orig_failed_decrypt_count;
     int rc = 0;
 
     SLOGD("crypt_ftr->fs_size = %lld\n", crypt_ftr->fs_size);
     orig_failed_decrypt_count = crypt_ftr->failed_decrypt_count;
 
-    fs_mgr_get_crypt_info(fstab_default, 0, real_blkdev, sizeof(real_blkdev));
+    get_crypt_info(nullptr, &real_blkdev);
 
     int key_index = 0;
     if(is_hw_disk_encryption((char*)crypt_ftr->crypto_type_name)) {
@@ -2053,7 +2053,7 @@ static int test_mount_hw_encrypted_fs(struct crypt_mnt_ftr* crypt_ftr,
             if (is_ice_enabled()) {
 #ifndef CONFIG_HW_DISK_ENCRYPT_PERF
                 if (create_crypto_blk_dev(crypt_ftr, (unsigned char*)&key_index,
-                                          real_blkdev, crypto_blkdev, label, 0)) {
+                                          real_blkdev.c_str(), crypto_blkdev, label, 0)) {
                     SLOGE("Error creating decrypted block device");
                     rc = -1;
                     goto errout;
@@ -2061,7 +2061,7 @@ static int test_mount_hw_encrypted_fs(struct crypt_mnt_ftr* crypt_ftr,
 #endif
             } else {
                 if (create_crypto_blk_dev(crypt_ftr, decrypted_master_key,
-                                          real_blkdev, crypto_blkdev, label, 0)) {
+                                          real_blkdev.c_str(), crypto_blkdev, label, 0)) {
                     SLOGE("Error creating decrypted block device");
                     rc = -1;
                     goto errout;
@@ -2808,7 +2808,7 @@ int cryptfs_enable_internal(int crypt_type, const char* passwd, int no_ui) {
 #ifdef CONFIG_HW_DISK_ENCRYPTION
     if (is_hw_disk_encryption((char*)crypt_ftr.crypto_type_name) && is_ice_enabled())
 #ifdef CONFIG_HW_DISK_ENCRYPT_PERF
-      strlcpy(crypto_blkdev, real_blkdev, sizeof(crypto_blkdev));
+      strlcpy(crypto_blkdev, real_blkdev.c_str(), sizeof(crypto_blkdev));
 #else
       create_crypto_blk_dev(&crypt_ftr, (unsigned char*)&key_index, real_blkdev.c_str(), crypto_blkdev,
                           CRYPTO_BLOCK_DEVICE, 0);

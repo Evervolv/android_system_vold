@@ -203,8 +203,7 @@ static bool read_and_fixate_user_ce_key(userid_t user_id,
 }
 
 bool is_wrapped_key_supported() {
-    return fs_mgr_is_wrapped_key_supported(
-        fs_mgr_get_entry_for_mount_point(fstab_default, DATA_MNT_POINT));
+    return GetEntryForMountPoint(&fstab_default, DATA_MNT_POINT)->fs_mgr_flags.wrapped_key;
 }
 
 bool is_wrapped_key_supported_external() {
