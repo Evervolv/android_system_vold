@@ -1342,15 +1342,14 @@ static int create_crypto_blk_dev(struct crypt_mnt_ftr* crypt_ftr, const unsigned
           else
             extra_params = "fde_enabled";
       }
+      extra_params_vec.emplace_back(extra_params);
     } else {
-      extra_params = "";
       if (! get_dm_crypt_version(fd, name, version)) {
         /* Support for allow_discards was added in version 1.11.0 */
         if ((version[0] >= 2) || ((version[0] == 1) && (version[1] >= 11))) {
+          extra_params_vec.emplace_back("allow_discards");
           if (flags & CREATE_CRYPTO_BLK_DEV_FLAGS_ALLOW_ENCRYPT_OVERRIDE)
-            extra_params = "2 allow_discards allow_encrypt_override";
-          else
-            extra_params = "1 allow_discards";
+            extra_params_vec.emplace_back("allow_encrypt_override");
           SLOGI("Enabling support for allow_discards in dmcrypt.\n");
         }
       }
