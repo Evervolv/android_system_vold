@@ -24,6 +24,7 @@
 #include <android-base/properties.h>
 #include <android-base/strings.h>
 #include <android-base/stringprintf.h>
+#include <android-base/unique_fd.h>
 #include <cutils/fs.h>
 #include <logwrap/logwrap.h>
 #include <private/android_filesystem_config.h>
@@ -753,6 +754,24 @@ bool WaitForFile(const std::string& filename,
 
 bool IsRunningInEmulator() {
     return android::base::GetBoolProperty("ro.kernel.qemu", false);
+}
+
+bool FsyncDirectory(const std::string& dirname) {
+    android::base::unique_fd fd(TEMP_FAILURE_RETRY(open(dirname.c_str(), O_RDONLY | O_CLOEXEC)));
+    if (fd == -1) {
+        PLOG(ERROR) << "Failed to open " << dirname;
+        return false;
+    }
+    if (fsync(fd) == -1) {
+        if (errno == EROFS || errno == EINVAL) {
+            PLOG(WARNING) << "Skip fsync " << dirname
+                          << " on a file system does not support synchronization";
+        } else {
+            PLOG(ERROR) << "Failed to fsync " << dirname;
+            return false;
+        }
+    }
+    return true;
 }
 
 }  // namespace vold
