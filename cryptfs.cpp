@@ -1232,7 +1232,6 @@ static int get_dm_crypt_version(int fd, const char* name, int* version) {
     return -1;
 }
 
-#ifndef CONFIG_HW_DISK_ENCRYPTION
 static std::string extra_params_as_string(const std::vector<std::string>& extra_params_vec) {
     if (extra_params_vec.empty()) return "";
     std::string extra_params = std::to_string(extra_params_vec.size());
@@ -1275,7 +1274,6 @@ static int add_sector_size_param(std::vector<std::string>* extra_params_vec,
     }
     return 0;
 }
-#endif
 
 static int create_crypto_blk_dev(struct crypt_mnt_ftr* crypt_ftr, const unsigned char* master_key,
                                  const char* real_blk_name, char* crypto_blk_name, const char* name,
@@ -1292,9 +1290,8 @@ static int create_crypto_blk_dev(struct crypt_mnt_ftr* crypt_ftr, const unsigned
     char encrypted_state[PROPERTY_VALUE_MAX] = {0};
     char progress[PROPERTY_VALUE_MAX] = {0};
     const char *extra_params;
-#else
-    std::vector<std::string> extra_params_vec;
 #endif
+    std::vector<std::string> extra_params_vec;
 
     if ((fd = open("/dev/device-mapper", O_RDWR | O_CLOEXEC)) < 0) {
         SLOGE("Cannot open device-mapper\n");
@@ -1342,20 +1339,25 @@ static int create_crypto_blk_dev(struct crypt_mnt_ftr* crypt_ftr, const unsigned
           else
             extra_params = "fde_enabled";
       }
-      extra_params_vec.emplace_back(extra_params);
-    } else {
-      if (! get_dm_crypt_version(fd, name, version)) {
-        /* Support for allow_discards was added in version 1.11.0 */
-        if ((version[0] >= 2) || ((version[0] == 1) && (version[1] >= 11))) {
-          extra_params_vec.emplace_back("allow_discards");
-          if (flags & CREATE_CRYPTO_BLK_DEV_FLAGS_ALLOW_ENCRYPT_OVERRIDE)
-            extra_params_vec.emplace_back("allow_encrypt_override");
-          SLOGI("Enabling support for allow_discards in dmcrypt.\n");
-        }
-      }
-    }
-    load_count = load_crypto_mapping_table(crypt_ftr, master_key, real_blk_name, name, fd,
+      load_count = load_crypto_mapping_table(crypt_ftr, master_key, real_blk_name, name, fd,
                                            extra_params);
+    } else {
+      if (!get_dm_crypt_version(fd, name, version)) {
+          /* Support for allow_discards was added in version 1.11.0 */
+          if ((version[0] >= 2) || ((version[0] == 1) && (version[1] >= 11))) {
+              extra_params_vec.emplace_back("allow_discards");
+          }
+      }
+      if (flags & CREATE_CRYPTO_BLK_DEV_FLAGS_ALLOW_ENCRYPT_OVERRIDE) {
+          extra_params_vec.emplace_back("allow_encrypt_override");
+      }
+      if (add_sector_size_param(&extra_params_vec, crypt_ftr)) {
+          SLOGE("Error processing dm-crypt sector size param\n");
+          goto errout;
+      }
+      load_count = load_crypto_mapping_table(crypt_ftr, master_key, real_blk_name, name, fd,
+                                             extra_params_as_string(extra_params_vec).c_str());
+    }
 #else
     if (!get_dm_crypt_version(fd, name, version)) {
         /* Support for allow_discards was added in version 1.11.0 */
