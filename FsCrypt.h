@@ -38,6 +38,7 @@ bool fscrypt_prepare_user_storage(const std::string& volume_uuid, userid_t user_
 bool fscrypt_destroy_user_storage(const std::string& volume_uuid, userid_t user_id, int flags);
 
 bool fscrypt_destroy_volume_keys(const std::string& volume_uuid);
+bool is_ice_supported_external(int flags);
 bool is_wrapped_key_supported();
-bool is_wrapped_key_supported_external();
 bool is_metadata_wrapped_key_supported();
+bool is_wrapped_key_supported_external(int flags);

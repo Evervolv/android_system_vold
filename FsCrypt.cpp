@@ -21,6 +21,7 @@
 #include "KeyUtil.h"
 #include "Utils.h"
 #include "VoldUtil.h"
+#include "model/Disk.h"
 
 #include <algorithm>
 #include <map>
@@ -202,11 +203,24 @@ static bool read_and_fixate_user_ce_key(userid_t user_id,
     return false;
 }
 
+bool is_ice_supported_external(int flags) {
+    /*
+     * Logic can be changed when more card controllers start supporting ICE.
+     * Until then, checking only for UFS card.
+     */
+    if ((flags & android::vold::Disk::Flags::kUfsCard) ==
+                           android::vold::Disk::Flags::kUfsCard)
+        return true;
+    return false;
+}
+
 bool is_wrapped_key_supported() {
     return GetEntryForMountPoint(&fstab_default, DATA_MNT_POINT)->fs_mgr_flags.wrapped_key;
 }
 
-bool is_wrapped_key_supported_external() {
+bool is_wrapped_key_supported_external(int flags) {
+    if (is_ice_supported_external(flags))
+        return GetEntryForMountPoint(&fstab_default, DATA_MNT_POINT)->fs_mgr_flags.wrapped_key;
     return false;
 }
 
@@ -601,7 +615,7 @@ static std::string volume_secdiscardable_path(const std::string& volume_uuid) {
 }
 
 static bool read_or_create_volkey(const std::string& misc_path, const std::string& volume_uuid,
-                                  PolicyKeyRef* key_ref) {
+                                  PolicyKeyRef* key_ref, int flags) {
     auto secdiscardable_path = volume_secdiscardable_path(volume_uuid);
     std::string secdiscardable_hash;
     bool wrapped_key_supported = false;
@@ -622,13 +636,20 @@ static bool read_or_create_volkey(const std::string& misc_path, const std::strin
         return false;
     }
     android::vold::KeyAuthentication auth("", secdiscardable_hash);
-    wrapped_key_supported = is_wrapped_key_supported_external();
+    wrapped_key_supported = is_wrapped_key_supported_external(flags);
 
     if (!android::vold::retrieveAndInstallKey(true, auth, key_path, key_path + "_tmp",
                                               &key_ref->key_raw_ref, wrapped_key_supported))
         return false;
-    key_ref->contents_mode =
-        android::base::GetProperty("ro.crypto.volume.contents_mode", "aes-256-xts");
+
+    if (is_ice_supported_external(flags)) {
+        key_ref->contents_mode =
+             android::base::GetProperty("ro.crypto.volume.contents_mode", "ice");
+    } else {
+        key_ref->contents_mode =
+             android::base::GetProperty("ro.crypto.volume.contents_mode", "aes-256-xts");
+    }
+
     key_ref->filenames_mode =
         android::base::GetProperty("ro.crypto.volume.filenames_mode", "aes-256-heh");
     return true;
@@ -838,7 +859,7 @@ bool fscrypt_prepare_user_storage(const std::string& volume_uuid, userid_t user_
                 if (!ensure_policy(de_ref, misc_de_path)) return false;
                 if (!ensure_policy(de_ref, vendor_de_path)) return false;
             } else {
-                if (!read_or_create_volkey(misc_de_path, volume_uuid, &de_ref)) return false;
+                if (!read_or_create_volkey(misc_de_path, volume_uuid, &de_ref, flags)) return false;
             }
             if (!ensure_policy(de_ref, user_de_path)) return false;
         }
@@ -870,7 +891,7 @@ bool fscrypt_prepare_user_storage(const std::string& volume_uuid, userid_t user_
                 if (!ensure_policy(ce_ref, vendor_ce_path)) return false;
 
             } else {
-                if (!read_or_create_volkey(misc_ce_path, volume_uuid, &ce_ref)) return false;
+                if (!read_or_create_volkey(misc_ce_path, volume_uuid, &ce_ref, flags)) return false;
             }
             if (!ensure_policy(ce_ref, media_ce_path)) return false;
             if (!ensure_policy(ce_ref, user_ce_path)) return false;

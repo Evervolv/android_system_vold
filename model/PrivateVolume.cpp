@@ -21,6 +21,8 @@
 #include "cryptfs.h"
 #include "fs/Ext4.h"
 #include "fs/F2fs.h"
+#include "MetadataCrypt.h"
+#include "FsCrypt.h"
 
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
@@ -39,6 +41,8 @@
 #define RETRY_MOUNT_ATTEMPTS 10
 #define RETRY_MOUNT_DELAY_SECONDS 1
 
+constexpr int FS_AES_256_XTS_KEY_SIZE = 64;
+
 using android::base::StringPrintf;
 
 namespace android {
@@ -46,8 +50,9 @@ namespace vold {
 
 static const unsigned int kMajorBlockMmc = 179;
 
-PrivateVolume::PrivateVolume(dev_t device, const std::string& keyRaw)
-    : VolumeBase(Type::kPrivate), mRawDevice(device), mKeyRaw(keyRaw) {
+PrivateVolume::PrivateVolume(dev_t device, const std::string& keyRaw, int flags)
+    : VolumeBase(Type::kPrivate), mRawDevice(device), mKeyRaw(keyRaw),
+    mDiskFlags(flags) {
     setId(StringPrintf("private:%u,%u", major(device), minor(device)));
     mRawDevPath = StringPrintf("/dev/block/vold/%s", getId().c_str());
 }
@@ -67,10 +72,19 @@ status_t PrivateVolume::doCreate() {
     if (CreateDeviceNode(mRawDevPath, mRawDevice)) {
         return -EIO;
     }
-    if (mKeyRaw.size() != cryptfs_get_keysize()) {
-        PLOG(ERROR) << getId() << " Raw keysize " << mKeyRaw.size()
-                    << " does not match crypt keysize " << cryptfs_get_keysize();
-        return -EIO;
+
+    if (is_ice_supported_external(mDiskFlags)) {
+        if (mKeyRaw.size() != FS_AES_256_XTS_KEY_SIZE) {
+            PLOG(ERROR) << getId() << " Keysize " << mKeyRaw.size()
+                        << " does not match AES XTS keysize " << FS_AES_256_XTS_KEY_SIZE;
+            return -EIO;
+        }
+    } else {
+        if (mKeyRaw.size() != cryptfs_get_keysize()) {
+            PLOG(ERROR) << getId() << " Raw keysize " << mKeyRaw.size()
+                        << " does not match crypt keysize " << cryptfs_get_keysize();
+            return -EIO;
+        }
     }
 
     // Recover from stale vold by tearing down any old mappings
@@ -80,8 +94,16 @@ status_t PrivateVolume::doCreate() {
 
     unsigned char* key = (unsigned char*)mKeyRaw.data();
     char crypto_blkdev[MAXPATHLEN];
-    int res = cryptfs_setup_ext_volume(getId().c_str(), mRawDevPath.c_str(), key, crypto_blkdev);
-    mDmDevPath = crypto_blkdev;
+    int res = 0;
+
+    if (is_ice_supported_external(mDiskFlags))
+        res = fscrypt_setup_ufscard_volume (getId(), mRawDevPath, mKeyRaw, mDmDevPath);
+    else {
+        res = cryptfs_setup_ext_volume(getId().c_str(), mRawDevPath.c_str(),
+                              key, crypto_blkdev);
+        mDmDevPath = crypto_blkdev;
+    }
+
     if (res != 0) {
         PLOG(ERROR) << getId() << " failed to setup cryptfs";
         return -EIO;
@@ -89,16 +111,16 @@ status_t PrivateVolume::doCreate() {
 
     int fd = 0;
     int retries = RETRY_MOUNT_ATTEMPTS;
-    while ((fd = open(crypto_blkdev, O_WRONLY|O_CLOEXEC)) < 0) {
+    while ((fd = open(mDmDevPath.c_str(), O_WRONLY|O_CLOEXEC)) < 0) {
         if (retries > 0) {
             retries--;
-            PLOG(ERROR) << "Error opening crypto_blkdev " << crypto_blkdev
+            PLOG(ERROR) << "Error opening crypto_blkdev " << mDmDevPath.c_str()
                             << " for private volume. err=" << errno
                             << "(" << strerror(errno) << "), retrying for the "
                             << RETRY_MOUNT_ATTEMPTS - retries << " time";
             sleep(RETRY_MOUNT_DELAY_SECONDS);
         } else {
-            PLOG(ERROR) << "Error opening crypto_blkdev " << crypto_blkdev
+            PLOG(ERROR) << "Error opening crypto_blkdev " << mDmDevPath.c_str()
                             << " for private volume. err=" << errno
                             << "(" << strerror(errno) << "), retried "
                             << RETRY_MOUNT_ATTEMPTS << " times";
@@ -203,7 +225,10 @@ status_t PrivateVolume::doFormat(const std::string& fsType) {
     if (fsType == "auto") {
         // For now, assume that all MMC devices are flash-based SD cards, and
         // give everyone else ext4 because sysfs rotational isn't reliable.
-        if ((major(mRawDevice) == kMajorBlockMmc) && f2fs::IsSupported()) {
+        if (((major(mRawDevice) == kMajorBlockMmc) ||
+                  ((mDiskFlags & android::vold::Disk::Flags::kUfsCard) ==
+                           android::vold::Disk::Flags::kUfsCard)) &&
+                               f2fs::IsSupported()) {
             resolvedFsType = "f2fs";
         } else {
             resolvedFsType = "ext4";

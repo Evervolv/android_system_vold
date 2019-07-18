@@ -21,6 +21,7 @@
 #include "Utils.h"
 #include "VolumeBase.h"
 #include "VolumeManager.h"
+#include "KeyStorage.h"
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
@@ -42,9 +43,13 @@
 #include <sys/types.h>
 #include <vector>
 
+#define MAX_USER_ID 0xFFFFFFFF
+constexpr int FS_AES_256_XTS_KEY_SIZE = 64;
+
 using android::base::ReadFileToString;
 using android::base::StringPrintf;
 using android::base::WriteStringToFile;
+using android::hardware::keymaster::V4_0::KeyFormat;
 
 namespace android {
 namespace vold {
@@ -185,9 +190,25 @@ void Disk::createPrivateVolume(dev_t device, const std::string& partGuid) {
         return;
     }
 
+    if (is_ice_supported_external(mFlags)) {
+        if (is_metadata_wrapped_key_supported()) {
+            KeyBuffer ephemeral_wrapped_key;
+            KeyBuffer key_buf = KeyBuffer(keyRaw.size());
+            memcpy(reinterpret_cast<void*>(key_buf.data()), keyRaw.c_str(),
+                            keyRaw.size());
+            if (!getEphemeralWrappedKey(KeyFormat::RAW, key_buf,
+                       &ephemeral_wrapped_key)) {
+                return;
+            }
+            keyRaw = std::string(ephemeral_wrapped_key.data(),
+                                             ephemeral_wrapped_key.size());
+        }
+    }
+
     LOG(DEBUG) << "Found key for GUID " << normalizedGuid;
 
-    auto vol = std::shared_ptr<VolumeBase>(new PrivateVolume(device, keyRaw));
+    auto vol = std::shared_ptr<VolumeBase>(new PrivateVolume(device, keyRaw,
+                                mFlags));
     if (mJustPartitioned) {
         LOG(DEBUG) << "Device just partitioned; silently formatting";
         vol->setSilent(true);
@@ -476,9 +497,25 @@ status_t Disk::partitionMixed(int8_t ratio) {
     }
 
     std::string keyRaw;
-    if (ReadRandomBytes(cryptfs_get_keysize(), keyRaw) != OK) {
-        LOG(ERROR) << "Failed to generate key";
-        return -EIO;
+
+    if (is_ice_supported_external(mFlags)) {
+        if (is_metadata_wrapped_key_supported()) {
+            KeyBuffer key_buf;
+            if (!generateWrappedKey(MAX_USER_ID, android::vold::KeyType::ME,
+                                     &key_buf))
+                return -EIO;
+            keyRaw = std::string(key_buf.data(), key_buf.size());
+        } else {
+            if (ReadRandomBytes(FS_AES_256_XTS_KEY_SIZE, keyRaw) != OK) {
+                LOG(ERROR) << "Failed to generate key";
+                return -EIO;
+            }
+        }
+    } else {
+        if (ReadRandomBytes(cryptfs_get_keysize(), keyRaw) != OK) {
+            LOG(ERROR) << "Failed to generate key";
+            return -EIO;
+        }
     }
 
     std::string partGuid;

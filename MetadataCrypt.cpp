@@ -293,3 +293,17 @@ bool fscrypt_mount_metadata_encrypted(const std::string& blk_device, const std::
     mount_via_fs_mgr(data_rec->mount_point.c_str(), crypto_blkdev.c_str());
     return true;
 }
+
+int fscrypt_setup_ufscard_volume (const std::string& dm_name, const std::string& real_blkdev,
+                           const std::string& key, std::string& crypto_blkdev)
+{
+    KeyBuffer key_buf = KeyBuffer(key.size());
+    memcpy(reinterpret_cast<void*>(key_buf.data()), key.c_str(), key.size());
+    uint64_t nr_sec;
+    if (!get_number_of_sectors(real_blkdev, &nr_sec)) return -1;
+    if (!create_crypto_blk_dev(dm_name, nr_sec, DEFAULT_KEY_TARGET_TYPE,
+                               default_key_params(real_blkdev, key_buf), &crypto_blkdev))
+        return -1;
+
+    return 0;
+}

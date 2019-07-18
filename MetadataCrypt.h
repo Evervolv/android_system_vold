@@ -21,5 +21,7 @@
 
 bool fscrypt_mount_metadata_encrypted(const std::string& block_device,
                                       const std::string& mount_point, bool needs_encrypt);
+int fscrypt_setup_ufscard_volume (const std::string& dm_name, const std::string& real_blkdev,
+                                    const std::string& key, std::string& crypto_blkdev);
 
 #endif
