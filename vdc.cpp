@@ -39,6 +39,18 @@
 
 #include <private/android_filesystem_config.h>
 
+/* Allowed values for type in the structure below */
+#define CRYPT_TYPE_PASSWORD                       \
+    0 /* master_key is encrypted with a password  \
+       * Must be zero to be compatible with pre-L \
+       * devices where type is always password.*/
+#define CRYPT_TYPE_DEFAULT                                            \
+    1                         /* master_key is encrypted with default \
+                               * password */
+#define CRYPT_TYPE_PATTERN 2  /* master_key is encrypted with a pattern */
+#define CRYPT_TYPE_PIN 3      /* master_key is encrypted with a pin */
+#define CRYPT_TYPE_MAX_TYPE 3 /* type cannot be larger than this value */
+
 static void usage(char* progname);
 
 static android::sp<android::IBinder> getServiceAggressive() {
@@ -61,6 +73,20 @@ static void checkStatus(std::vector<std::string>& cmd, android::binder::Status s
     std::string command = ::android::base::Join(cmd, " ");
     LOG(ERROR) << "Command: " << command << " Failed: " << status.toString8().string();
     exit(ENOTTY);
+}
+
+static int getType(const std::string &type) {
+    if (type == "default") {
+        return CRYPT_TYPE_DEFAULT;
+    } else if (type == "password") {
+        return CRYPT_TYPE_PASSWORD;
+    } else if (type == "pin") {
+        return CRYPT_TYPE_PIN;
+    } else if (type == "pattern") {
+        return CRYPT_TYPE_PATTERN;
+    } else {
+        return -1;
+    }
 }
 
 int main(int argc, char** argv) {
@@ -111,6 +137,9 @@ int main(int argc, char** argv) {
         checkStatus(args, vold->mountFstab(args[2], args[3]));
     } else if (args[0] == "cryptfs" && args[1] == "encryptFstab" && args.size() == 4) {
         checkStatus(args, vold->encryptFstab(args[2], args[3]));
+    } else if (args[0] == "cryptfs" && args[1] == "changepw" && args.size() == 5) {
+        int type = getType(args[2]);
+        checkStatus(args, vold->fdeChangePassword(type, args[3], args[4]));
     } else if (args[0] == "checkpoint" && args[1] == "supportsCheckpoint" && args.size() == 2) {
         bool supported = false;
         checkStatus(args, vold->supportsCheckpoint(&supported));
