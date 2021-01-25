@@ -54,6 +54,7 @@ interface IVold {
 
     void remountUid(int uid, int remountMode);
     void remountAppStorageDirs(int uid, int pid, in @utf8InCpp String[] packageNames);
+    void unmountAppStorageDirs(int uid, int pid, in @utf8InCpp String[] packageNames);
 
     void setupAppDir(@utf8InCpp String path, int appUid);
     void fixupAppDir(@utf8InCpp String path, int appUid);
@@ -168,7 +169,6 @@ interface IVold {
 
     const int STORAGE_FLAG_DE = 1;
     const int STORAGE_FLAG_CE = 2;
-    const int STORAGE_FLAG_LEVEL_FROM_USER = 4;
 
     const int REMOUNT_MODE_NONE = 0;
     const int REMOUNT_MODE_DEFAULT = 1;
