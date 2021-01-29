@@ -33,6 +33,7 @@
 #include "Checkpoint.h"
 #include "FsCrypt.h"
 #include "IdleMaint.h"
+#include "KeyStorage.h"
 #include "Keymaster.h"
 #include "MetadataCrypt.h"
 #include "MoveStorage.h"
@@ -699,6 +700,13 @@ binder::Status VoldNativeService::encryptFstab(const std::string& blkDevice,
             fscrypt_mount_metadata_encrypted(blkDevice, mountPoint, true, shouldFormat, fsType));
 }
 
+binder::Status VoldNativeService::setStorageBindingSeed(const std::vector<uint8_t>& seed) {
+    ENFORCE_SYSTEM_OR_ROOT;
+    ACQUIRE_CRYPT_LOCK;
+
+    return translateBool(setKeyStorageBindingSeed(seed));
+}
+
 binder::Status VoldNativeService::createUserKey(int32_t userId, int32_t userSerial,
                                                 bool ephemeral) {
     ENFORCE_SYSTEM_OR_ROOT;
@@ -930,6 +938,9 @@ binder::Status VoldNativeService::mountIncFs(
     _aidl_return->cmd.reset(unique_fd(fds[CMD].release()));
     _aidl_return->pendingReads.reset(unique_fd(fds[PENDING_READS].release()));
     _aidl_return->log.reset(unique_fd(fds[LOGS].release()));
+    if (fds[BLOCKS_WRITTEN].ok()) {
+        _aidl_return->blocksWritten.emplace(unique_fd(fds[BLOCKS_WRITTEN].release()));
+    }
     return Ok();
 }
 
@@ -946,7 +957,8 @@ binder::Status VoldNativeService::setIncFsMountOptions(
     ENFORCE_SYSTEM_OR_ROOT;
 
     auto incfsControl =
-            incfs::createControl(control.cmd.get(), control.pendingReads.get(), control.log.get());
+            incfs::createControl(control.cmd.get(), control.pendingReads.get(), control.log.get(),
+                                 control.blocksWritten ? control.blocksWritten->get() : -1);
     auto cleanupFunc = [](auto incfsControl) {
         for (auto& fd : incfsControl->releaseFds()) {
             (void)fd.release();
