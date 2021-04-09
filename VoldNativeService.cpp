@@ -54,6 +54,7 @@ namespace vold {
 namespace {
 
 constexpr const char* kDump = "android.permission.DUMP";
+constexpr auto kIncFsReadNoTimeoutMs = 100;
 
 static binder::Status error(const std::string& msg) {
     PLOG(ERROR) << msg;
@@ -724,13 +725,22 @@ binder::Status VoldNativeService::destroyUserKey(int32_t userId) {
     return translateBool(fscrypt_destroy_user_key(userId));
 }
 
+static bool token_empty(const std::string& token) {
+    return token.size() == 0 || token == "!";
+}
+
 binder::Status VoldNativeService::addUserKeyAuth(int32_t userId, int32_t userSerial,
                                                  const std::string& token,
                                                  const std::string& secret) {
     ENFORCE_SYSTEM_OR_ROOT;
     ACQUIRE_CRYPT_LOCK;
 
-    return translateBool(fscrypt_add_user_key_auth(userId, userSerial, token, secret));
+    if (!token_empty(token)) {
+        LOG(ERROR) << "Vold doesn't use auth tokens, but non-empty token passed to addUserKeyAuth.";
+        return binder::Status::fromServiceSpecificError(-EINVAL);
+    }
+
+    return translateBool(fscrypt_add_user_key_auth(userId, userSerial, secret));
 }
 
 binder::Status VoldNativeService::clearUserKeyAuth(int32_t userId, int32_t userSerial,
@@ -739,7 +749,13 @@ binder::Status VoldNativeService::clearUserKeyAuth(int32_t userId, int32_t userS
     ENFORCE_SYSTEM_OR_ROOT;
     ACQUIRE_CRYPT_LOCK;
 
-    return translateBool(fscrypt_clear_user_key_auth(userId, userSerial, token, secret));
+    if (!token_empty(token)) {
+        LOG(ERROR)
+                << "Vold doesn't use auth tokens, but non-empty token passed to clearUserKeyAuth.";
+        return binder::Status::fromServiceSpecificError(-EINVAL);
+    }
+
+    return translateBool(fscrypt_clear_user_key_auth(userId, userSerial, secret));
 }
 
 binder::Status VoldNativeService::fixateNewestUserKeyAuth(int32_t userId) {
@@ -755,7 +771,12 @@ binder::Status VoldNativeService::unlockUserKey(int32_t userId, int32_t userSeri
     ENFORCE_SYSTEM_OR_ROOT;
     ACQUIRE_CRYPT_LOCK;
 
-    return translateBool(fscrypt_unlock_user_key(userId, userSerial, token, secret));
+    if (!token_empty(token)) {
+        LOG(ERROR) << "Vold doesn't use auth tokens, but non-empty token passed to unlockUserKey.";
+        return binder::Status::fromServiceSpecificError(-EINVAL);
+    }
+
+    return translateBool(fscrypt_unlock_user_key(userId, userSerial, secret));
 }
 
 binder::Status VoldNativeService::lockUserKey(int32_t userId) {
@@ -935,6 +956,7 @@ binder::Status VoldNativeService::mountIncFs(
 
     auto control = incfs::mount(backingPath, targetDir,
                                 {.flags = IncFsMountFlags(flags),
+                                 // Mount with read timeouts.
                                  .defaultReadTimeoutMs = INCFS_DEFAULT_READ_TIMEOUT_MS,
                                  // Mount with read logs disabled.
                                  .readLogBufferPages = 0});
@@ -961,7 +983,7 @@ binder::Status VoldNativeService::unmountIncFs(const std::string& dir) {
 
 binder::Status VoldNativeService::setIncFsMountOptions(
         const ::android::os::incremental::IncrementalFileSystemControlParcel& control,
-        bool enableReadLogs) {
+        bool enableReadLogs, bool enableReadTimeouts) {
     ENFORCE_SYSTEM_OR_ROOT;
 
     auto incfsControl =
@@ -976,7 +998,8 @@ binder::Status VoldNativeService::setIncFsMountOptions(
             std::unique_ptr<incfs::Control, decltype(cleanupFunc)>(&incfsControl, cleanupFunc);
     if (auto error = incfs::setOptions(
                 incfsControl,
-                {.defaultReadTimeoutMs = INCFS_DEFAULT_READ_TIMEOUT_MS,
+                {.defaultReadTimeoutMs =
+                         enableReadTimeouts ? INCFS_DEFAULT_READ_TIMEOUT_MS : kIncFsReadNoTimeoutMs,
                  .readLogBufferPages = enableReadLogs ? INCFS_DEFAULT_PAGE_READ_BUFFER_PAGES : 0});
         error < 0) {
         return binder::Status::fromServiceSpecificError(error);
