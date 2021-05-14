@@ -45,8 +45,6 @@
 
 #include <cutils/properties.h>
 
-#include <hardware/hw_auth_token.h>
-
 extern "C" {
 
 #include "crypto_scrypt.h"
@@ -60,24 +58,18 @@ const KeyAuthentication kEmptyAuthentication{""};
 static constexpr size_t AES_KEY_BYTES = 32;
 static constexpr size_t GCM_NONCE_BYTES = 12;
 static constexpr size_t GCM_MAC_BYTES = 16;
-static constexpr size_t SALT_BYTES = 1 << 4;
 static constexpr size_t SECDISCARDABLE_BYTES = 1 << 14;
-static constexpr size_t STRETCHED_BYTES = 1 << 6;
-
-static constexpr uint32_t AUTH_TIMEOUT = 30;  // Seconds
 
 static const char* kCurrentVersion = "1";
 static const char* kRmPath = "/system/bin/rm";
 static const char* kSecdiscardPath = "/system/bin/secdiscard";
 static const char* kStretch_none = "none";
 static const char* kStretch_nopassword = "nopassword";
-static const std::string kStretchPrefix_scrypt = "scrypt ";
 static const char* kHashPrefix_secdiscardable = "Android secdiscardable SHA512";
 static const char* kHashPrefix_keygen = "Android key wrapping key generation SHA512";
 static const char* kFn_encrypted_key = "encrypted_key";
 static const char* kFn_keymaster_key_blob = "keymaster_key_blob";
 static const char* kFn_keymaster_key_blob_upgraded = "keymaster_key_blob_upgraded";
-static const char* kFn_salt = "salt";
 static const char* kFn_secdiscardable = "secdiscardable";
 static const char* kFn_stretching = "stretching";
 static const char* kFn_version = "version";
@@ -154,7 +146,7 @@ static bool generateKeyStorageKey(Keymaster& keymaster, const std::string& appId
                                 .GcmModeMinMacLen(GCM_MAC_BYTES * 8)
                                 .Authorization(km::TAG_APPLICATION_ID, appId)
                                 .Authorization(km::TAG_NO_AUTH_REQUIRED);
-    LOG(DEBUG) << "Generating \"key storage\" key that doesn't need auth token";
+    LOG(DEBUG) << "Generating \"key storage\" key";
     return generateKeymasterKey(keymaster, paramBuilder, key);
 }
 
@@ -294,6 +286,24 @@ static void CancelPendingKeyCommit(const std::string& dir) {
     }
 }
 
+// Renames a key directory. Also updates the deferred commit vector
+// (key_dirs_to_commit) appropriately.
+//
+// However, @old_name must be the path to the directory that was used to put that
+// directory into the deferred commit list in the first place (since this function
+// directly compares paths instead of using IsSameFile()).
+static bool RenameKeyDir(const std::string& old_name, const std::string& new_name) {
+    std::lock_guard<std::mutex> lock(key_upgrade_lock);
+
+    if (rename(old_name.c_str(), new_name.c_str()) != 0) return false;
+
+    // IsSameFile() doesn't work here since we just renamed @old_name.
+    for (auto it = key_dirs_to_commit.begin(); it != key_dirs_to_commit.end(); it++) {
+        if (*it == old_name) *it = new_name;
+    }
+    return true;
+}
+
 // Deletes a leftover upgraded key, if present.  An upgraded key can be left
 // over if an update failed, or if we rebooted before committing the key in a
 // freak accident.  Either way, we can re-upgrade the key if we need to.
@@ -415,7 +425,7 @@ static std::string getStretching(const KeyAuthentication& auth) {
 }
 
 static bool stretchSecret(const std::string& stretching, const std::string& secret,
-                          const std::string& salt, std::string* stretched) {
+                          std::string* stretched) {
     if (stretching == kStretch_nopassword) {
         if (!secret.empty()) {
             LOG(WARNING) << "Password present but stretching is nopassword";
@@ -432,10 +442,9 @@ static bool stretchSecret(const std::string& stretching, const std::string& secr
 }
 
 static bool generateAppId(const KeyAuthentication& auth, const std::string& stretching,
-                          const std::string& salt, const std::string& secdiscardable_hash,
-                          std::string* appId) {
+                          const std::string& secdiscardable_hash, std::string* appId) {
     std::string stretched;
-    if (!stretchSecret(stretching, auth.secret, salt, &stretched)) return false;
+    if (!stretchSecret(stretching, auth.secret, &stretched)) return false;
     *appId = secdiscardable_hash + stretched;
 
     const std::lock_guard<std::mutex> scope_lock(storage_binding_info.guard);
@@ -570,9 +579,8 @@ bool storeKey(const std::string& dir, const KeyAuthentication& auth, const KeyBu
     if (!createSecdiscardable(dir + "/" + kFn_secdiscardable, &secdiscardable_hash)) return false;
     std::string stretching = getStretching(auth);
     if (!writeStringToFile(stretching, dir + "/" + kFn_stretching)) return false;
-    std::string salt;
     std::string appId;
-    if (!generateAppId(auth, stretching, salt, secdiscardable_hash, &appId)) return false;
+    if (!generateAppId(auth, stretching, secdiscardable_hash, &appId)) return false;
     std::string encryptedKey;
     if (auth.usesKeymaster()) {
         Keymaster keymaster;
@@ -601,7 +609,8 @@ bool storeKeyAtomically(const std::string& key_path, const std::string& tmp_path
         destroyKey(tmp_path);  // May be partially created so ignore errors
     }
     if (!storeKey(tmp_path, auth, key)) return false;
-    if (rename(tmp_path.c_str(), key_path.c_str()) != 0) {
+
+    if (!RenameKeyDir(tmp_path, key_path)) {
         PLOG(ERROR) << "Unable to move new key to location: " << key_path;
         return false;
     }
@@ -621,9 +630,8 @@ bool retrieveKey(const std::string& dir, const KeyAuthentication& auth, KeyBuffe
     if (!readSecdiscardable(dir + "/" + kFn_secdiscardable, &secdiscardable_hash)) return false;
     std::string stretching;
     if (!readFileToString(dir + "/" + kFn_stretching, &stretching)) return false;
-    std::string salt;
     std::string appId;
-    if (!generateAppId(auth, stretching, salt, secdiscardable_hash, &appId)) return false;
+    if (!generateAppId(auth, stretching, secdiscardable_hash, &appId)) return false;
     std::string encryptedMessage;
     if (!readFileToString(dir + "/" + kFn_encrypted_key, &encryptedMessage)) return false;
     if (auth.usesKeymaster()) {
