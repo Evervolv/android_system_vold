@@ -300,8 +300,15 @@ status_t PublicVolume::doUnmount() {
         mSdcardFsWrite.clear();
         mSdcardFsFull.clear();
     }
-    ForceUnmount(mRawPath);
-    rmdir(mRawPath.c_str());
+
+    if (ForceUnmount(mRawPath) != 0){
+        umount2(mRawPath.c_str(),MNT_DETACH);
+        PLOG(INFO) << "use umount lazy if force unmount fail";
+    }
+    if(rmdir(mRawPath.c_str()) != 0) {
+        PLOG(INFO) << "rmdir mRawPath=" << mRawPath << " fail";
+        KillProcessesUsingPath(getPath());
+    }
     mRawPath.clear();
 
     return OK;
