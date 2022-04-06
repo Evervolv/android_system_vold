@@ -1120,14 +1120,6 @@ std::string BuildDataMiscLegacyPath(userid_t userId) {
     return StringPrintf("%s/misc/user/%u", BuildDataPath("").c_str(), userId);
 }
 
-std::string BuildDataMiscCePath(userid_t userId) {
-    return StringPrintf("%s/misc_ce/%u", BuildDataPath("").c_str(), userId);
-}
-
-std::string BuildDataMiscDePath(userid_t userId) {
-    return StringPrintf("%s/misc_de/%u", BuildDataPath("").c_str(), userId);
-}
-
 // Keep in sync with installd (frameworks/native/cmds/installd/utils.h)
 std::string BuildDataProfilesDePath(userid_t userId) {
     return StringPrintf("%s/misc/profiles/cur/%u", BuildDataPath("").c_str(), userId);
@@ -1155,6 +1147,14 @@ std::string BuildDataMediaCePath(const std::string& volumeUuid, userid_t userId)
     // TODO: unify with installd path generation logic
     std::string data(BuildDataPath(volumeUuid));
     return StringPrintf("%s/media/%u", data.c_str(), userId);
+}
+
+std::string BuildDataMiscCePath(const std::string& volumeUuid, userid_t userId) {
+    return StringPrintf("%s/misc_ce/%u", BuildDataPath(volumeUuid).c_str(), userId);
+}
+
+std::string BuildDataMiscDePath(const std::string& volumeUuid, userid_t userId) {
+    return StringPrintf("%s/misc_de/%u", BuildDataPath(volumeUuid).c_str(), userId);
 }
 
 std::string BuildDataUserCePath(const std::string& volumeUuid, userid_t userId) {
@@ -1264,49 +1264,6 @@ bool IsVirtioBlkDevice(unsigned int major) {
     // kernel (4.4; see init() in drivers/block/virtio_blk.c).
     static unsigned int kMajorBlockVirtioBlk = GetMajorBlockVirtioBlk();
     return kMajorBlockVirtioBlk && major == kMajorBlockVirtioBlk;
-}
-
-static status_t findMountPointsWithPrefix(const std::string& prefix,
-                                          std::list<std::string>& mountPoints) {
-    // Add a trailing slash if the client didn't provide one so that we don't match /foo/barbaz
-    // when the prefix is /foo/bar
-    std::string prefixWithSlash(prefix);
-    if (prefix.back() != '/') {
-        android::base::StringAppendF(&prefixWithSlash, "/");
-    }
-
-    std::unique_ptr<FILE, int (*)(FILE*)> mnts(setmntent("/proc/mounts", "re"), endmntent);
-    if (!mnts) {
-        PLOG(ERROR) << "Unable to open /proc/mounts";
-        return -errno;
-    }
-
-    // Some volumes can be stacked on each other, so force unmount in
-    // reverse order to give us the best chance of success.
-    struct mntent* mnt;  // getmntent returns a thread local, so it's safe.
-    while ((mnt = getmntent(mnts.get())) != nullptr) {
-        auto mountPoint = std::string(mnt->mnt_dir) + "/";
-        if (android::base::StartsWith(mountPoint, prefixWithSlash)) {
-            mountPoints.push_front(mountPoint);
-        }
-    }
-    return OK;
-}
-
-// Unmount all mountpoints that start with prefix. prefix itself doesn't need to be a mountpoint.
-status_t UnmountTreeWithPrefix(const std::string& prefix) {
-    std::list<std::string> toUnmount;
-    status_t result = findMountPointsWithPrefix(prefix, toUnmount);
-    if (result < 0) {
-        return result;
-    }
-    for (const auto& path : toUnmount) {
-        if (umount2(path.c_str(), MNT_DETACH)) {
-            PLOG(ERROR) << "Failed to unmount " << path;
-            result = -errno;
-        }
-    }
-    return result;
 }
 
 status_t UnmountTree(const std::string& mountPoint) {
@@ -1806,6 +1763,16 @@ std::pair<android::base::unique_fd, std::string> OpenDirInProcfs(std::string_vie
 
     auto linkPath = std::string("/proc/self/fd/") += std::to_string(fd.get());
     return {std::move(fd), std::move(linkPath)};
+}
+
+bool IsFuseBpfEnabled() {
+    std::string bpf_override = android::base::GetProperty("persist.sys.fuse.bpf.override", "");
+    if (bpf_override == "true") {
+        return true;
+    } else if (bpf_override == "false") {
+        return false;
+    }
+    return base::GetBoolProperty("ro.fuse.bpf.enabled", false);
 }
 
 }  // namespace vold
