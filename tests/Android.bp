@@ -24,6 +24,7 @@ cc_fuzz {
         "vold_default_libs",
         "keystore2_use_latest_aidl_ndk_shared",
         "service_fuzzer_defaults",
+        "fuzzer_disable_leaks"
     ],
     static_libs: [
         "libvold",
