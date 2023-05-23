@@ -29,6 +29,9 @@ cc_defaults {
     name: "vold_default_libs",
 
     static_libs: [
+        "android.hardware.health.storage@1.0",
+        "android.hardware.health.storage-V1-ndk",
+        "android.security.maintenance-ndk",
         "libasync_safe",
         "libavb",
         "libbootloader_message",
@@ -47,10 +50,10 @@ cc_defaults {
         "libboot_control_client",
         "libbase",
         "libbinder",
+        "libbinder_ndk",
         "libcrypto",
         "libcrypto_utils",
         "libcutils",
-        "libdiskconfig",
         "libext4_utils",
         "libf2fs_sparseblock",
         "libgsi",
@@ -58,6 +61,7 @@ cc_defaults {
         "libhardware_legacy",
         "libincfs",
         "libhidlbase",
+        "libkeymint_support",
         "libkeyutils",
         "liblog",
         "liblogwrap",
@@ -160,13 +164,6 @@ cc_library_static {
             cppflags: ["-D__ANDROID_DEBUGGABLE__"],
         },
     },
-    shared_libs: [
-        "android.hardware.health.storage@1.0",
-        "android.hardware.health.storage-V1-ndk",
-        "android.security.maintenance-ndk",
-        "libbinder_ndk",
-        "libkeymint_support",
-    ],
     whole_static_libs: [
         "libcom.android.sysprop.apex",
         "libc++fs",
@@ -182,7 +179,10 @@ cc_binary {
     ],
 
     srcs: ["main.cpp"],
-    static_libs: ["libvold"],
+    static_libs: [
+        "libvold",
+    ],
+
     init_rc: [
         "vold.rc",
     ],
@@ -191,14 +191,6 @@ cc_binary {
         "mke2fs",
         "vold_prepare_subdirs",
         "fuseMedia.o",
-    ],
-
-    shared_libs: [
-        "android.hardware.health.storage@1.0",
-        "android.hardware.health.storage-V1-ndk",
-        "android.security.maintenance-ndk",
-        "libbinder_ndk",
-        "libkeymint_support",
     ],
 
     product_variables: {
