@@ -323,8 +323,37 @@ static bool prepare_dir(const std::string& dir, mode_t mode, uid_t uid, gid_t gi
 // Prepare a directory and assign it the given encryption policy.
 static bool prepare_dir_with_policy(const std::string& dir, mode_t mode, uid_t uid, gid_t gid,
                                     const EncryptionPolicy& policy) {
-    if (!prepare_dir(dir, mode, uid, gid)) return false;
-    if (IsFbeEnabled() && !EnsurePolicy(policy, dir)) return false;
+    if (android::vold::pathExists(dir)) {
+        if (!prepare_dir(dir, mode, uid, gid)) return false;
+        if (IsFbeEnabled() && !EnsurePolicy(policy, dir)) return false;
+    } else {
+        // If the directory does not yet exist, then create it under a temporary name, and only move
+        // it to the final name after it is fully prepared with an encryption policy and the desired
+        // file permissions.  This prevents the directory from being accessed before it is ready.
+        //
+        // Note: this relies on the SELinux file_contexts assigning the same type to the file path
+        // with the ".new" suffix as to the file path without the ".new" suffix.
+
+        const std::string tmp_dir = dir + ".new";
+        if (android::vold::pathExists(tmp_dir)) {
+            android::vold::DeleteDirContentsAndDir(tmp_dir);
+        }
+        if (!prepare_dir(tmp_dir, mode, uid, gid)) return false;
+        if (IsFbeEnabled() && !EnsurePolicy(policy, tmp_dir)) return false;
+
+        // On some buggy kernels, renaming a directory that is both encrypted and case-insensitive
+        // fails in some specific circumstances.  Unfortunately, these circumstances happen here
+        // when processing the "media" directory.  This was already fixed by kernel commit
+        // https://git.kernel.org/linus/b5639bb4313b9d45 ('f2fs: don't use casefolded comparison for
+        // "." and ".."').  But to support kernels that lack that fix, we use the below workaround.
+        // It bypasses the bug by making the encryption key of tmp_dir be loaded before the rename.
+        android::vold::pathExists(tmp_dir + "/subdir");
+
+        if (rename(tmp_dir.c_str(), dir.c_str()) != 0) {
+            PLOG(ERROR) << "Failed to rename " << tmp_dir << " to " << dir;
+            return false;
+        }
+    }
     return true;
 }
 
