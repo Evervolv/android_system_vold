@@ -471,26 +471,23 @@ status_t Disk::partitionPublic() {
 
     std::vector<std::string> output;
     res = ForkExecvp(cmd, &output);
-    if (res != OK) {
-        LOG(WARNING) << "sgdisk failed to scan " << mDevPath;
-        mJustPartitioned = false;
-        return res;
-    }
-
     Table table = Table::kUnknown;
-    for (auto line : output) {
-        char* cline = (char*) line.c_str();
-        char* token = strtok(cline, kSgdiskToken);
-        if (token == nullptr) continue;
+    // fails when there is no partition table, it's okay
+    if (res == OK) {
+        for (auto line : output) {
+            char* cline = (char*) line.c_str();
+            char* token = strtok(cline, kSgdiskToken);
+            if (token == nullptr) continue;
 
-        if (!strcmp(token, "DISK")) {
-            const char* type = strtok(nullptr, kSgdiskToken);
-            if (!strcmp(type, "mbr")) {
-                table = Table::kMbr;
-                break;
-            } else if (!strcmp(type, "gpt")) {
-                table = Table::kGpt;
-                break;
+            if (!strcmp(token, "DISK")) {
+                const char* type = strtok(nullptr, kSgdiskToken);
+                if (!strcmp(type, "mbr")) {
+                    table = Table::kMbr;
+                    break;
+                } else if (!strcmp(type, "gpt")) {
+                    table = Table::kGpt;
+                    break;
+                }
             }
         }
     }
