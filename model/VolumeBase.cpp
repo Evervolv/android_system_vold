@@ -49,7 +49,8 @@ void VolumeBase::setState(State state) {
 
     auto listener = getListener();
     if (listener) {
-        listener->onVolumeStateChanged(getId(), static_cast<int32_t>(mState));
+        listener->onVolumeStateChanged(getId(), static_cast<int32_t>(mState),
+                                       static_cast<int32_t>(mMountUserId));
     }
 }
 
