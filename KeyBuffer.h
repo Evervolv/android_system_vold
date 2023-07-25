@@ -19,6 +19,7 @@
 
 #include <string.h>
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 namespace android {
@@ -31,6 +32,12 @@ class ZeroingAllocator : public std::allocator<char> {
         memset_explicit(p, 0, n);
         std::allocator<char>::deallocate(p, n);
     }
+
+    template <class Other>
+    struct rebind {
+        static_assert(std::is_same_v<char, Other>, "ZeroingAllocator is only defined for char");
+        using other = ZeroingAllocator;
+    };
 };
 
 // Char vector that zeroes memory when deallocating.
