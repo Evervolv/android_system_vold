@@ -1137,7 +1137,10 @@ static bool destroy_volume_keys(const std::string& directory_path, const std::st
     return res;
 }
 
+// Destroys all CE and DE keys for an adoptable storage volume that is permanently going away.
+// Requires VolumeManager::mCryptLock.
 bool fscrypt_destroy_volume_keys(const std::string& volume_uuid) {
+    if (!IsFbeEnabled()) return true;
     bool res = true;
     LOG(DEBUG) << "fscrypt_destroy_volume_keys for volume " << escape_empty(volume_uuid);
     auto secdiscardable_path = volume_secdiscardable_path(volume_uuid);
