@@ -436,7 +436,7 @@ int RunIdleMaint(bool needGC, const android::sp<android::os::IVoldTaskListener>&
     idle_maint_stat = IdleMaintStats::kStopped;
     lk.unlock();
 
-    cv_stop.notify_one();
+    cv_stop.notify_all();
 
     if (listener) {
         android::os::PersistableBundle extras;
