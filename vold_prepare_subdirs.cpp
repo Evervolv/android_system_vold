@@ -144,7 +144,12 @@ static bool rmrf_contents(const std::string& path) {
 static bool prepare_apex_subdirs(struct selabel_handle* sehandle, const std::string& path) {
     if (!prepare_dir(sehandle, 0711, 0, 0, path + "/apexdata")) return false;
 
-    auto dirp = std::unique_ptr<DIR, int (*)(DIR*)>(opendir("/apex"), closedir);
+    // Since vold/vold_prepare_subdirs run in the bootstrap mount namespace
+    // we can't get the full list of APEXes by scanning /apex directory.
+    // Instead, we can look up /data/misc/apexdata for the list of APEXes,
+    // which is populated during `perform_apex_config` in init.
+    // Note: `init_user0` should be invoked after `perform_apex_config`.
+    auto dirp = std::unique_ptr<DIR, int (*)(DIR*)>(opendir("/data/misc/apexdata"), closedir);
     if (!dirp) {
         PLOG(ERROR) << "Unable to open apex directory";
         return false;
@@ -156,8 +161,6 @@ static bool prepare_apex_subdirs(struct selabel_handle* sehandle, const std::str
         const char* name = entry->d_name;
         // skip any starting with "."
         if (name[0] == '.') continue;
-
-        if (strchr(name, '@') != NULL) continue;
 
         if (!prepare_dir(sehandle, 0771, AID_ROOT, AID_SYSTEM, path + "/apexdata/" + name)) {
             return false;
