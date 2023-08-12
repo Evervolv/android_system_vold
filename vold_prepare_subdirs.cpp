@@ -30,11 +30,7 @@
 #include <sys/types.h>
 
 #include <android-base/logging.h>
-#include <android-base/result.h>
 #include <android-base/scopeguard.h>
-#include <android/apex/ApexInfo.h>
-#include <android/apex/IApexService.h>
-#include <binder/IServiceManager.h>
 
 #include <cutils/fs.h>
 #include <selinux/android.h>
@@ -145,35 +141,27 @@ static bool rmrf_contents(const std::string& path) {
     }
 }
 
-static android::base::Result<std::vector<std::string>> get_apex_list() {
-    auto sm = android::defaultServiceManager();
-    auto binder = sm->waitForService(android::String16("apexservice"));
-    if (binder == nullptr) {
-        return android::base::Error() << "Failed to get apexservice";
-    }
-    auto service = android::interface_cast<android::apex::IApexService>(binder);
-    std::vector<android::apex::ApexInfo> list;
-    auto status = service->getActivePackages(&list);
-    if (!status.isOk()) {
-        return android::base::Error() << status.exceptionMessage().c_str();
-    }
-    std::vector<std::string> names;
-    names.reserve(list.size());
-    for (const auto& apex_info : list) {
-        names.push_back(apex_info.moduleName);
-    }
-    return names;
-}
-
 static bool prepare_apex_subdirs(struct selabel_handle* sehandle, const std::string& path) {
     if (!prepare_dir(sehandle, 0711, 0, 0, path + "/apexdata")) return false;
 
-    auto apex_list = get_apex_list();
-    if (!apex_list.ok()) {
-        LOG(ERROR) << apex_list.error();
+    // Since vold/vold_prepare_subdirs run in the bootstrap mount namespace
+    // we can't get the full list of APEXes by scanning /apex directory.
+    // Instead, we can look up /data/misc/apexdata for the list of APEXes,
+    // which is populated during `perform_apex_config` in init.
+    // Note: `init_user0` should be invoked after `perform_apex_config`.
+    auto dirp = std::unique_ptr<DIR, int (*)(DIR*)>(opendir("/data/misc/apexdata"), closedir);
+    if (!dirp) {
+        PLOG(ERROR) << "Unable to open apex directory";
         return false;
     }
-    for (const auto& name : *apex_list) {
+    struct dirent* entry;
+    while ((entry = readdir(dirp.get())) != nullptr) {
+        if (entry->d_type != DT_DIR) continue;
+
+        const char* name = entry->d_name;
+        // skip any starting with "."
+        if (name[0] == '.') continue;
+
         if (!prepare_dir(sehandle, 0771, AID_ROOT, AID_SYSTEM, path + "/apexdata/" + name)) {
             return false;
         }
