@@ -239,10 +239,7 @@ cc_binary {
 
 cc_binary {
     name: "vold_prepare_subdirs",
-    defaults: [
-        "vold_default_flags",
-        "libapexservice-deps",
-    ],
+    defaults: ["vold_default_flags"],
 
     srcs: [
         "vold_prepare_subdirs.cpp",
