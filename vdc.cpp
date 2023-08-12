@@ -62,7 +62,7 @@ static android::sp<android::IBinder> getServiceAggressive() {
 static void checkStatus(std::vector<std::string>& cmd, android::binder::Status status) {
     if (status.isOk()) return;
     std::string command = ::android::base::Join(cmd, " ");
-    LOG(ERROR) << "Command: " << command << " Failed: " << status.toString8().string();
+    LOG(ERROR) << "Command: " << command << " Failed: " << status.toString8().c_str();
     exit(ENOTTY);
 }
 
