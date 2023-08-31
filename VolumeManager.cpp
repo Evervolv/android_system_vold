@@ -35,7 +35,6 @@
 
 #include <linux/kdev_t.h>
 
-#include <ApexProperties.sysprop.h>
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/parseint.h>
@@ -595,11 +594,10 @@ bool scanProcProcesses(uid_t uid, userid_t userId, ScanProcCallback callback, vo
     struct dirent* de;
     std::string rootName;
     std::string pidName;
+    std::string exeName;
     int pidFd;
     int nsFd;
     struct stat sb;
-
-    static bool apexUpdatable = android::sysprop::ApexProperties::updatable().value_or(false);
 
     if (!(dir = opendir("/proc"))) {
         async_safe_format_log(ANDROID_LOG_ERROR, "vold", "Failed to opendir");
@@ -648,22 +646,18 @@ bool scanProcProcesses(uid_t uid, userid_t userId, ScanProcCallback callback, vo
             goto next;
         }
 
-        if (apexUpdatable) {
-            std::string exeName;
-            // When ro.apex.bionic_updatable is set to true,
-            // some early native processes have mount namespaces that are different
-            // from that of the init. Therefore, above check can't filter them out.
-            // Since the propagation type of / is 'shared', unmounting /storage
-            // for the early native processes affects other processes including
-            // init. Filter out such processes by skipping if a process is a
-            // non-Java process whose UID is < AID_APP_START. (The UID condition
-            // is required to not filter out child processes spawned by apps.)
-            if (!android::vold::Readlinkat(pidFd, "exe", &exeName)) {
-                goto next;
-            }
-            if (!StartsWith(exeName, "/system/bin/app_process") && sb.st_uid < AID_APP_START) {
-                goto next;
-            }
+        // Some early native processes have mount namespaces that are different
+        // from that of the init. Therefore, above check can't filter them out.
+        // Since the propagation type of / is 'shared', unmounting /storage
+        // for the early native processes affects other processes including
+        // init. Filter out such processes by skipping if a process is a
+        // non-Java process whose UID is < AID_APP_START. (The UID condition
+        // is required to not filter out child processes spawned by apps.)
+        if (!android::vold::Readlinkat(pidFd, "exe", &exeName)) {
+            goto next;
+        }
+        if (!StartsWith(exeName, "/system/bin/app_process") && sb.st_uid < AID_APP_START) {
+            goto next;
         }
 
         // We purposefully leave the namespace open across the fork
