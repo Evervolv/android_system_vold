@@ -551,9 +551,9 @@ void SetGCUrgentPace(int32_t neededSegments, int32_t minSegmentThreshold, float 
 
     int32_t freeSegments = std::stoi(freeSegmentsStr);
     int32_t dirtySegments = std::stoi(dirtySegmentsStr);
-    int32_t reservedBlocks = std::stoi(ovpSegmentsStr) + std::stoi(reservedBlocksStr);
+    int32_t reservedSegments = std::stoi(ovpSegmentsStr) + std::stoi(reservedBlocksStr) / 512;
 
-    freeSegments = freeSegments > reservedBlocks ? freeSegments - reservedBlocks : 0;
+    freeSegments = freeSegments > reservedSegments ? freeSegments - reservedSegments : 0;
     int32_t totalSegments = freeSegments + dirtySegments;
     int32_t finalTargetSegments = 0;
 
