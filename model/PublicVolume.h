@@ -42,6 +42,8 @@ class PublicVolume : public VolumeBase {
     explicit PublicVolume(dev_t device);
     virtual ~PublicVolume();
 
+    status_t bindMountForUser(userid_t user_id);
+
   protected:
     status_t doCreate() override;
     status_t doDestroy() override;
