@@ -257,7 +257,43 @@ status_t PublicVolume::doMount() {
     // See comment in model/EmulatedVolume.cpp
     ConfigureMaxDirtyRatioForFuse(GetFuseMountPathForUser(user_id, stableName), 40u);
 
+    auto vol_manager = VolumeManager::Instance();
+    // Create bind mounts for all running users
+    for (userid_t started_user : vol_manager->getStartedUsers()) {
+        userid_t mountUserId = getMountUserId();
+        if (started_user == mountUserId) {
+            // No need to bind mount for the user that owns the mount
+            continue;
+        }
+        if (mountUserId != VolumeManager::Instance()->getSharedStorageUser(started_user)) {
+            // No need to bind if the user does not share storage with the mount owner
+            continue;
+        }
+        auto bindMountStatus = bindMountForUser(started_user);
+        if (bindMountStatus != OK) {
+            LOG(ERROR) << "Bind Mounting Public Volume: " << stableName
+                       << " for user: " << started_user << "Failed. Error: " << bindMountStatus;
+        }
+    }
     return OK;
+}
+
+status_t PublicVolume::bindMountForUser(userid_t user_id) {
+    userid_t mountUserId = getMountUserId();
+    std::string stableName = getId();
+    if (!mFsUuid.empty()) {
+        stableName = mFsUuid;
+    }
+
+    LOG(INFO) << "Bind Mounting Public Volume for user: " << user_id
+              << ".Mount owner: " << mountUserId;
+    auto sourcePath = GetFuseMountPathForUser(mountUserId, stableName);
+    auto destPath = GetFuseMountPathForUser(user_id, stableName);
+    PrepareDir(destPath, 0770, AID_ROOT, AID_MEDIA_RW);
+    auto mountRes = BindMount(sourcePath, destPath);
+    LOG(INFO) << "Mount status: " << mountRes;
+
+    return mountRes;
 }
 
 status_t PublicVolume::doUnmount() {
@@ -272,6 +308,20 @@ status_t PublicVolume::doUnmount() {
         std::string stableName = getId();
         if (!mFsUuid.empty()) {
             stableName = mFsUuid;
+        }
+
+        // Unmount bind mounts for running users
+        auto vol_manager = VolumeManager::Instance();
+        int user_id = getMountUserId();
+        for (int started_user : vol_manager->getStartedUsers()) {
+            if (started_user == user_id) {
+                // No need to remove bind mount for the user that owns the mount
+                continue;
+            }
+            LOG(INFO) << "Removing Public Volume Bind Mount for: " << started_user;
+            auto mountPath = GetFuseMountPathForUser(started_user, stableName);
+            ForceUnmount(mountPath);
+            rmdir(mountPath.c_str());
         }
 
         if (UnmountUserFuse(getMountUserId(), getInternalPath(), stableName) != OK) {
