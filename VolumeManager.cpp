@@ -69,6 +69,7 @@
 #include "model/EmulatedVolume.h"
 #include "model/ObbVolume.h"
 #include "model/PrivateVolume.h"
+#include "model/PublicVolume.h"
 #include "model/StubVolume.h"
 
 using android::OK;
@@ -89,6 +90,7 @@ using android::vold::IsVirtioBlkDevice;
 using android::vold::PrepareAndroidDirs;
 using android::vold::PrepareAppDirFromRoot;
 using android::vold::PrivateVolume;
+using android::vold::PublicVolume;
 using android::vold::Symlink;
 using android::vold::Unlink;
 using android::vold::UnmountTree;
@@ -458,6 +460,31 @@ int VolumeManager::onUserStarted(userid_t userId) {
 
     if (mStartedUsers.find(userId) == mStartedUsers.end()) {
         createEmulatedVolumesForUser(userId);
+        std::list<std::string> public_vols;
+        listVolumes(VolumeBase::Type::kPublic, public_vols);
+        for (const std::string& id : public_vols) {
+            PublicVolume* pvol = static_cast<PublicVolume*>(findVolume(id).get());
+            if (pvol->getState() != VolumeBase::State::kMounted) {
+                continue;
+            }
+            if (pvol->isVisible() == 0) {
+                continue;
+            }
+            userid_t mountUserId = pvol->getMountUserId();
+            if (userId == mountUserId) {
+                // No need to bind mount for the user that owns the mount
+                continue;
+            }
+            if (mountUserId != VolumeManager::Instance()->getSharedStorageUser(userId)) {
+                // No need to bind if the user does not share storage with the mount owner
+                continue;
+            }
+            auto bindMountStatus = pvol->bindMountForUser(userId);
+            if (bindMountStatus != OK) {
+                LOG(ERROR) << "Bind Mounting Public Volume: " << pvol << " for user: " << userId
+                           << "Failed. Error: " << bindMountStatus;
+            }
+        }
     }
 
     mStartedUsers.insert(userId);
