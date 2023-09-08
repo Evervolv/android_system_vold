@@ -35,6 +35,7 @@ cc_fuzz {
     srcs: [
         "VoldFuzzer.cpp",
     ],
+    corpus: ["vold_native_service_fuzzer_corpus/*"],
     fuzz_config: {
         cc: [
             "maco@google.com",
