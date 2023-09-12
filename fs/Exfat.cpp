@@ -48,6 +48,9 @@ status_t Check(const std::string& source) {
     if (rc == 0) {
         LOG(INFO) << "Check OK";
         return 0;
+    } else if (rc == 1) {
+        LOG(INFO) << "Filesystem errors corrected";
+        return 0;
     } else {
         LOG(ERROR) << "Check failed (code " << rc << ")";
         errno = EIO;
