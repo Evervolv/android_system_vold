@@ -1771,24 +1771,45 @@ std::pair<android::base::unique_fd, std::string> OpenDirInProcfs(std::string_vie
     return {std::move(fd), std::move(linkPath)};
 }
 
-bool IsFuseBpfEnabled() {
-    // TODO Once kernel supports flag, trigger off kernel flag unless
-    //      ro.fuse.bpf.enabled is explicitly set to false
-    bool enabled;
-    if (base::GetProperty("ro.fuse.bpf.is_running", "") != "")
-        enabled = base::GetBoolProperty("ro.fuse.bpf.is_running", false);
-    else if (base::GetProperty("persist.sys.fuse.bpf.override", "") != "")
-        enabled = base::GetBoolProperty("persist.sys.fuse.bpf.override", false);
-    else
-        enabled = base::GetBoolProperty("ro.fuse.bpf.enabled", false);
+static bool IsPropertySet(const char* name, bool& value) {
+    if (base::GetProperty(name, "") == "") return false;
 
-    if (enabled) {
-        base::SetProperty("ro.fuse.bpf.is_running", "true");
-        return true;
-    } else {
-        base::SetProperty("ro.fuse.bpf.is_running", "false");
-        return false;
+    value = base::GetBoolProperty(name, false);
+    LOG(INFO) << "fuse-bpf is " << (value ? "enabled" : "disabled") << " because of property "
+              << name;
+    return true;
+}
+
+bool IsFuseBpfEnabled() {
+    // This logic is reproduced in packages/providers/MediaProvider/jni/FuseDaemon.cpp
+    // so changes made here must be reflected there
+    bool enabled = false;
+
+    if (IsPropertySet("ro.fuse.bpf.is_running", enabled)) return enabled;
+
+    if (!IsPropertySet("persist.sys.fuse.bpf.override", enabled) &&
+        !IsPropertySet("ro.fuse.bpf.enabled", enabled)) {
+        // If the kernel has fuse-bpf, /sys/fs/fuse/features/fuse_bpf will exist and have the
+        // contents 'supported\n' - see fs/fuse/inode.c in the kernel source
+        std::string contents;
+        const char* filename = "/sys/fs/fuse/features/fuse_bpf";
+        if (!base::ReadFileToString(filename, &contents)) {
+            LOG(INFO) << "fuse-bpf is disabled because " << filename << " cannot be read";
+            enabled = false;
+        } else if (contents == "supported\n") {
+            LOG(INFO) << "fuse-bpf is enabled because " << filename << " reads 'supported'";
+            enabled = true;
+        } else {
+            LOG(INFO) << "fuse-bpf is disabled because " << filename
+                      << " does not read 'supported'";
+            enabled = false;
+        }
     }
+
+    std::string value = enabled ? "true" : "false";
+    LOG(INFO) << "Setting ro.fuse.bpf.is_running to " << value;
+    base::SetProperty("ro.fuse.bpf.is_running", value);
+    return enabled;
 }
 
 }  // namespace vold
