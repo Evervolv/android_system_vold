@@ -482,17 +482,6 @@ static bool load_all_de_keys() {
     return true;
 }
 
-// Attempt to reinstall CE keys for users that we think are unlocked.
-static bool try_reload_ce_keys() {
-    for (const auto& [user_id, user_policies] : s_ce_policies) {
-        if (!android::vold::reloadKeyFromSessionKeyring(DATA_MNT_POINT, user_policies.internal)) {
-            LOG(ERROR) << "Failed to load CE key from session keyring for user " << user_id;
-            return false;
-        }
-    }
-    return true;
-}
-
 bool fscrypt_initialize_systemwide_keys() {
     LOG(INFO) << "fscrypt_initialize_systemwide_keys";
 
@@ -619,13 +608,6 @@ bool fscrypt_init_user0() {
     if (!fscrypt_prepare_user_storage("", 0, 0, android::os::IVold::STORAGE_FLAG_DE)) {
         LOG(ERROR) << "Failed to prepare user 0 storage";
         return false;
-    }
-
-    // In some scenarios (e.g. userspace reboot) we might unmount userdata
-    // without doing a hard reboot. If CE keys were stored in fs keyring then
-    // they will be lost after unmount. Attempt to re-install them.
-    if (IsFbeEnabled() && android::vold::isFsKeyringSupported()) {
-        if (!try_reload_ce_keys()) return false;
     }
 
     fscrypt_init_user0_done = true;
