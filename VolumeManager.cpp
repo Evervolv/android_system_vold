@@ -349,25 +349,19 @@ void VolumeManager::listVolumes(android::vold::VolumeBase::Type type,
     }
 }
 
-int VolumeManager::forgetPartition(const std::string& partGuid, const std::string& fsUuid) {
+bool VolumeManager::forgetPartition(const std::string& partGuid, const std::string& fsUuid) {
     std::string normalizedGuid;
     if (android::vold::NormalizeHex(partGuid, normalizedGuid)) {
         LOG(WARNING) << "Invalid GUID " << partGuid;
-        return -1;
+        return false;
     }
 
-    bool success = true;
     std::string keyPath = android::vold::BuildKeyPath(normalizedGuid);
     if (unlink(keyPath.c_str()) != 0) {
         LOG(ERROR) << "Failed to unlink " << keyPath;
-        success = false;
+        return false;
     }
-    if (IsFbeEnabled()) {
-        if (!fscrypt_destroy_volume_keys(fsUuid)) {
-            success = false;
-        }
-    }
-    return success ? 0 : -1;
+    return true;
 }
 
 void VolumeManager::destroyEmulatedVolumesForUser(userid_t userId) {
