@@ -316,18 +316,6 @@ static bool get_volume_file_encryption_options(EncryptionOptions* options) {
     return true;
 }
 
-static bool read_and_install_user_ce_key(userid_t user_id,
-                                         const android::vold::KeyAuthentication& auth) {
-    if (s_ce_policies.count(user_id) != 0) return true;
-    KeyBuffer ce_key;
-    if (!read_and_fixate_user_ce_key(user_id, auth, &ce_key)) return false;
-    EncryptionPolicy ce_policy;
-    if (!install_storage_key(DATA_MNT_POINT, s_data_options, ce_key, &ce_policy)) return false;
-    s_ce_policies[user_id] = ce_policy;
-    LOG(DEBUG) << "Installed ce key for user " << user_id;
-    return true;
-}
-
 // Prepare a directory without assigning it an encryption policy.  The directory
 // will inherit the encryption policy of its parent directory, or will be
 // unencrypted if the parent directory is unencrypted.
@@ -896,18 +884,19 @@ std::vector<int> fscrypt_get_unlocked_users() {
 // TODO: rename to 'install' for consistency, and take flags to know which keys to install
 bool fscrypt_unlock_user_key(userid_t user_id, int serial, const std::string& secret_hex) {
     LOG(DEBUG) << "fscrypt_unlock_user_key " << user_id << " serial=" << serial;
-    if (IsFbeEnabled()) {
-        if (s_ce_policies.count(user_id) != 0) {
-            LOG(WARNING) << "Tried to unlock already-unlocked key for user " << user_id;
-            return true;
-        }
-        auto auth = authentication_from_hex(secret_hex);
-        if (!auth) return false;
-        if (!read_and_install_user_ce_key(user_id, *auth)) {
-            LOG(ERROR) << "Couldn't read key for " << user_id;
-            return false;
-        }
+    if (!IsFbeEnabled()) return true;
+    if (s_ce_policies.count(user_id) != 0) {
+        LOG(WARNING) << "Tried to unlock already-unlocked key for user " << user_id;
+        return true;
     }
+    auto auth = authentication_from_hex(secret_hex);
+    if (!auth) return false;
+    KeyBuffer ce_key;
+    if (!read_and_fixate_user_ce_key(user_id, *auth, &ce_key)) return false;
+    EncryptionPolicy ce_policy;
+    if (!install_storage_key(DATA_MNT_POINT, s_data_options, ce_key, &ce_policy)) return false;
+    s_ce_policies[user_id] = ce_policy;
+    LOG(DEBUG) << "Installed ce key for user " << user_id;
     return true;
 }
 
