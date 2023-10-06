@@ -680,7 +680,6 @@ static bool evict_ce_key(userid_t user_id) {
         drop_caches_if_needed();
     }
     s_ce_policies.erase(user_id);
-    s_new_ce_keys.erase(user_id);
     return success;
 }
 
