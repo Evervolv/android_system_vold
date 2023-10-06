@@ -49,15 +49,10 @@ bool isFsKeyringSupported(void);
 // on the specified filesystem using the specified encryption policy version.
 //
 // For v1 policies, we use FS_IOC_ADD_ENCRYPTION_KEY if the kernel supports it.
-// Otherwise we add the key to the global session keyring as a "logon" key.
+// Otherwise we add the key to the legacy global session keyring.
 //
 // For v2 policies, we always use FS_IOC_ADD_ENCRYPTION_KEY; it's the only way
 // the kernel supports.
-//
-// If kernel supports FS_IOC_ADD_ENCRYPTION_KEY, also installs key of
-// fscrypt-provisioning type to the global session keyring. This makes it
-// possible to unmount and then remount mountpoint without losing the file-based
-// key.
 //
 // Returns %true on success, %false on failure.  On success also sets *policy
 // to the EncryptionPolicy used to refer to this key.
@@ -66,10 +61,10 @@ bool installKey(const std::string& mountpoint, const android::fscrypt::Encryptio
 
 // Evict a file-based encryption key from the kernel.
 //
-// This undoes the effect of installKey().
+// We use FS_IOC_REMOVE_ENCRYPTION_KEY if the kernel supports it.  Otherwise we
+// remove the key from the legacy global session keyring.
 //
-// If the kernel doesn't support the filesystem-level keyring, the caller is
-// responsible for dropping caches.
+// In the latter case, the caller is responsible for dropping caches.
 bool evictKey(const std::string& mountpoint, const android::fscrypt::EncryptionPolicy& policy);
 
 // Retrieves the key from the named directory, or generates it if it doesn't
@@ -77,11 +72,6 @@ bool evictKey(const std::string& mountpoint, const android::fscrypt::EncryptionP
 bool retrieveOrGenerateKey(const std::string& key_path, const std::string& tmp_path,
                            const KeyAuthentication& key_authentication, const KeyGeneration& gen,
                            KeyBuffer* key);
-
-// Re-installs a file-based encryption key of fscrypt-provisioning type from the
-// global session keyring back into fs keyring of the mountpoint.
-bool reloadKeyFromSessionKeyring(const std::string& mountpoint,
-                                 const android::fscrypt::EncryptionPolicy& policy);
 
 }  // namespace vold
 }  // namespace android
