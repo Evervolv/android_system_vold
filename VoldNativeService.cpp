@@ -607,26 +607,27 @@ binder::Status VoldNativeService::setStorageBindingSeed(const std::vector<uint8_
     return translateBool(setKeyStorageBindingSeed(seed));
 }
 
-binder::Status VoldNativeService::createUserKey(int32_t userId, int32_t userSerial,
-                                                bool ephemeral) {
+binder::Status VoldNativeService::createUserStorageKeys(int32_t userId, int32_t userSerial,
+                                                        bool ephemeral) {
     ENFORCE_SYSTEM_OR_ROOT;
     ACQUIRE_CRYPT_LOCK;
 
-    return translateBool(fscrypt_vold_create_user_key(userId, userSerial, ephemeral));
+    return translateBool(fscrypt_create_user_keys(userId, userSerial, ephemeral));
 }
 
-binder::Status VoldNativeService::destroyUserKey(int32_t userId) {
+binder::Status VoldNativeService::destroyUserStorageKeys(int32_t userId) {
     ENFORCE_SYSTEM_OR_ROOT;
     ACQUIRE_CRYPT_LOCK;
 
-    return translateBool(fscrypt_destroy_user_key(userId));
+    return translateBool(fscrypt_destroy_user_keys(userId));
 }
 
-binder::Status VoldNativeService::setUserKeyProtection(int32_t userId, const std::string& secret) {
+binder::Status VoldNativeService::setCeStorageProtection(int32_t userId,
+                                                         const std::string& secret) {
     ENFORCE_SYSTEM_OR_ROOT;
     ACQUIRE_CRYPT_LOCK;
 
-    return translateBool(fscrypt_set_user_key_protection(userId, secret));
+    return translateBool(fscrypt_set_ce_key_protection(userId, secret));
 }
 
 binder::Status VoldNativeService::getUnlockedUsers(std::vector<int>* _aidl_return) {
@@ -637,19 +638,19 @@ binder::Status VoldNativeService::getUnlockedUsers(std::vector<int>* _aidl_retur
     return Ok();
 }
 
-binder::Status VoldNativeService::unlockUserKey(int32_t userId, int32_t userSerial,
-                                                const std::string& secret) {
+binder::Status VoldNativeService::unlockCeStorage(int32_t userId, int32_t userSerial,
+                                                  const std::string& secret) {
     ENFORCE_SYSTEM_OR_ROOT;
     ACQUIRE_CRYPT_LOCK;
 
-    return translateBool(fscrypt_unlock_user_key(userId, userSerial, secret));
+    return translateBool(fscrypt_unlock_ce_storage(userId, userSerial, secret));
 }
 
-binder::Status VoldNativeService::lockUserKey(int32_t userId) {
+binder::Status VoldNativeService::lockCeStorage(int32_t userId) {
     ENFORCE_SYSTEM_OR_ROOT;
     ACQUIRE_CRYPT_LOCK;
 
-    return translateBool(fscrypt_lock_user_key(userId));
+    return translateBool(fscrypt_lock_ce_storage(userId));
 }
 
 binder::Status VoldNativeService::prepareUserStorage(const std::optional<std::string>& uuid,
