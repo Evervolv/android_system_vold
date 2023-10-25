@@ -421,7 +421,7 @@ static bool create_ce_key(userid_t user_id, bool ephemeral) {
             return false;
         // We don't store the CE key on disk here, since here we don't have the
         // secret needed to do so securely.  Instead, we cache it in memory for
-        // now, and we store it later in fscrypt_set_user_key_protection().
+        // now, and we store it later in fscrypt_set_ce_key_protection().
         s_new_ce_keys.insert({user_id, ce_key});
     }
     EncryptionPolicy ce_policy;
@@ -614,15 +614,15 @@ bool fscrypt_init_user0() {
     return true;
 }
 
-bool fscrypt_vold_create_user_key(userid_t user_id, int serial, bool ephemeral) {
-    LOG(DEBUG) << "fscrypt_vold_create_user_key for " << user_id << " serial " << serial;
+// Creates the CE and DE keys for a new user.
+bool fscrypt_create_user_keys(userid_t user_id, int serial, bool ephemeral) {
+    LOG(DEBUG) << "fscrypt_create_user_keys for " << user_id << " serial " << serial;
     if (!IsFbeEnabled()) {
         return true;
     }
     // FIXME test for existence of key that is not loaded yet
     if (s_ce_policies.count(user_id) != 0) {
-        LOG(ERROR) << "Already exists, can't fscrypt_vold_create_user_key for " << user_id
-                   << " serial " << serial;
+        LOG(ERROR) << "Already exists, can't create keys for " << user_id << " serial " << serial;
         // FIXME should we fail the command?
         return true;
     }
@@ -671,8 +671,8 @@ static bool evict_user_keys(std::map<userid_t, UserPolicies>& policy_map, userid
 }
 
 // Evicts and destroys all CE and DE keys for a user.  This is called when the user is removed.
-bool fscrypt_destroy_user_key(userid_t user_id) {
-    LOG(DEBUG) << "fscrypt_destroy_user_key(" << user_id << ")";
+bool fscrypt_destroy_user_keys(userid_t user_id) {
+    LOG(DEBUG) << "fscrypt_destroy_user_keys(" << user_id << ")";
     if (!IsFbeEnabled()) {
         return true;
     }
@@ -769,13 +769,13 @@ static bool destroy_volkey(const std::string& misc_path, const std::string& volu
 // re-encrypting the CE key upon upgrade from an Android version where the CE
 // key was stored with kEmptyAuthentication when the user didn't have an LSKF.
 // See the comments below for the different cases handled.
-bool fscrypt_set_user_key_protection(userid_t user_id, const std::string& secret_hex) {
-    LOG(DEBUG) << "fscrypt_set_user_key_protection " << user_id;
+bool fscrypt_set_ce_key_protection(userid_t user_id, const std::string& secret_hex) {
+    LOG(DEBUG) << "fscrypt_set_ce_key_protection " << user_id;
     if (!IsFbeEnabled()) return true;
     auto auth = authentication_from_hex(secret_hex);
     if (!auth) return false;
     if (auth->secret.empty()) {
-        LOG(ERROR) << "fscrypt_set_user_key_protection: secret must be nonempty";
+        LOG(ERROR) << "fscrypt_set_ce_key_protection: secret must be nonempty";
         return false;
     }
     // We shouldn't store any keys for ephemeral users.
@@ -871,11 +871,11 @@ std::vector<int> fscrypt_get_unlocked_users() {
 // Unlocks internal CE storage for the given user.  This only unlocks internal storage, since
 // fscrypt_prepare_user_storage() has to be called for each adoptable storage volume anyway (since
 // the volume might have been absent when the user was created), and that handles the unlocking.
-bool fscrypt_unlock_user_key(userid_t user_id, int serial, const std::string& secret_hex) {
-    LOG(DEBUG) << "fscrypt_unlock_user_key " << user_id << " serial=" << serial;
+bool fscrypt_unlock_ce_storage(userid_t user_id, int serial, const std::string& secret_hex) {
+    LOG(DEBUG) << "fscrypt_unlock_ce_storage " << user_id << " serial=" << serial;
     if (!IsFbeEnabled()) return true;
     if (s_ce_policies.count(user_id) != 0) {
-        LOG(WARNING) << "Tried to unlock already-unlocked key for user " << user_id;
+        LOG(WARNING) << "CE storage for user " << user_id << " is already unlocked";
         return true;
     }
     auto auth = authentication_from_hex(secret_hex);
@@ -885,13 +885,13 @@ bool fscrypt_unlock_user_key(userid_t user_id, int serial, const std::string& se
     EncryptionPolicy ce_policy;
     if (!install_storage_key(DATA_MNT_POINT, s_data_options, ce_key, &ce_policy)) return false;
     s_ce_policies[user_id].internal = ce_policy;
-    LOG(DEBUG) << "Installed ce key for user " << user_id;
+    LOG(DEBUG) << "Installed CE key for user " << user_id;
     return true;
 }
 
 // Locks CE storage for the given user.  This locks both internal and adoptable storage.
-bool fscrypt_lock_user_key(userid_t user_id) {
-    LOG(DEBUG) << "fscrypt_lock_user_key " << user_id;
+bool fscrypt_lock_ce_storage(userid_t user_id) {
+    LOG(DEBUG) << "fscrypt_lock_ce_storage " << user_id;
     if (!IsFbeEnabled()) return true;
     return evict_user_keys(s_ce_policies, user_id);
 }
