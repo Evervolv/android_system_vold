@@ -85,14 +85,14 @@ interface IVold {
 
     void setStorageBindingSeed(in byte[] seed);
 
-    void createUserKey(int userId, int userSerial, boolean ephemeral);
-    void destroyUserKey(int userId);
+    void createUserStorageKeys(int userId, int userSerial, boolean ephemeral);
+    void destroyUserStorageKeys(int userId);
 
-    void setUserKeyProtection(int userId, @utf8InCpp String secret);
+    void setCeStorageProtection(int userId, @utf8InCpp String secret);
 
     int[] getUnlockedUsers();
-    void unlockUserKey(int userId, int userSerial, @utf8InCpp String secret);
-    void lockUserKey(int userId);
+    void unlockCeStorage(int userId, int userSerial, @utf8InCpp String secret);
+    void lockCeStorage(int userId);
 
     void prepareUserStorage(@nullable @utf8InCpp String uuid, int userId, int userSerial,
                             int storageFlags);
