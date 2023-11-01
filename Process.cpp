@@ -173,6 +173,7 @@ int KillProcessesWithOpenFiles(const std::string& prefix, int signal, bool killF
             }
         }
     }
+    int totalKilledPids = pids.size();
     if (signal != 0) {
         for (const auto& pid : pids) {
             std::string comm;
@@ -184,10 +185,17 @@ int KillProcessesWithOpenFiles(const std::string& prefix, int signal, bool killF
 
             LOG(WARNING) << "Sending " << strsignal(signal) << " to pid " << pid << " (" << comm
                          << ", " << exe << ")";
-            kill(pid, signal);
+            if (kill(pid, signal) < 0) {
+                if (errno == ESRCH) {
+                    totalKilledPids--;
+                    LOG(WARNING) << "The target pid " << pid << " was already killed";
+                    continue;
+                }
+                LOG(ERROR) << "Unable to send signal " << strsignal(signal) << " to pid " << pid;
+            }
         }
     }
-    return pids.size();
+    return totalKilledPids;
 }
 
 }  // namespace vold
