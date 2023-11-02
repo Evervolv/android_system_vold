@@ -10,6 +10,15 @@
       "name": "CtsScopedStorageDeviceOnlyTest"
     },
     {
+      "name": "CtsScopedStorageBypassDatabaseOperationsTest"
+    },
+    {
+      "name": "CtsScopedStorageGeneralTest"
+    },
+    {
+      "name": "CtsScopedStorageRedactUriTest"
+    },
+    {
       "name": "AdoptableHostTest"
     }
   ],
@@ -22,6 +31,15 @@
     },
     {
       "name": "CtsScopedStorageDeviceOnlyTest"
+    },
+    {
+      "name": "CtsScopedStorageBypassDatabaseOperationsTest"
+    },
+    {
+      "name": "CtsScopedStorageGeneralTest"
+    },
+    {
+      "name": "CtsScopedStorageRedactUriTest"
     },
     {
       "name": "AdoptableHostTest"
