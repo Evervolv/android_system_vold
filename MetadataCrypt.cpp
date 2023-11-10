@@ -200,6 +200,13 @@ static bool create_crypto_blk_dev(const std::string& dm_name, const std::string&
         LOG(ERROR) << "Could not create default-key device " << dm_name;
         return false;
     }
+
+    // If there are multiple partitions used for a single mount, F2FS stores
+    // their partition paths in superblock. If the paths are dm targets, we
+    // cannot guarantee them across device boots. Let's use the logical paths.
+    if (dm_name == kDmNameUserdata || dm_name == kDmNameUserdataZoned) {
+        *crypto_blkdev = "/dev/block/mapper/" + dm_name;
+    }
     return true;
 }
 
