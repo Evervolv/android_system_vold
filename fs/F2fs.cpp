@@ -101,7 +101,13 @@ status_t Format(const std::string& source, const std::string& zoned_device) {
         cmd.emplace_back(zoned_device.c_str());
         cmd.emplace_back("-m");
     }
+
+    std::string block_size = std::to_string(getpagesize());
+    cmd.emplace_back("-b");
+    cmd.emplace_back(block_size.c_str());
+
     cmd.emplace_back(source.c_str());
+
     return logwrap_fork_execvp(cmd.size(), cmd.data(), nullptr, false, LOG_KLOG,
                              false, nullptr);
 }
