@@ -62,6 +62,7 @@ cc_defaults {
         "libincfs",
         "libhidlbase",
         "libkeymint_support",
+        "libkeyutils",
         "liblog",
         "liblogwrap",
         "libselinux",
