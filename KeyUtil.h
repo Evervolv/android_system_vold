@@ -43,8 +43,16 @@ bool generateStorageKey(const KeyGeneration& gen, KeyBuffer* key);
 // be generated.
 const KeyGeneration neverGen();
 
+bool isFsKeyringSupported(void);
+
 // Install a file-based encryption key to the kernel, for use by encrypted files
 // on the specified filesystem using the specified encryption policy version.
+//
+// For v1 policies, we use FS_IOC_ADD_ENCRYPTION_KEY if the kernel supports it.
+// Otherwise we add the key to the legacy global session keyring.
+//
+// For v2 policies, we always use FS_IOC_ADD_ENCRYPTION_KEY; it's the only way
+// the kernel supports.
 //
 // Returns %true on success, %false on failure.  On success also sets *policy
 // to the EncryptionPolicy used to refer to this key.
@@ -52,6 +60,11 @@ bool installKey(const std::string& mountpoint, const android::fscrypt::Encryptio
                 const KeyBuffer& key, android::fscrypt::EncryptionPolicy* policy);
 
 // Evict a file-based encryption key from the kernel.
+//
+// We use FS_IOC_REMOVE_ENCRYPTION_KEY if the kernel supports it.  Otherwise we
+// remove the key from the legacy global session keyring.
+//
+// In the latter case, the caller is responsible for dropping caches.
 bool evictKey(const std::string& mountpoint, const android::fscrypt::EncryptionPolicy& policy);
 
 // Retrieves the key from the named directory, or generates it if it doesn't
