@@ -48,6 +48,7 @@
 #include <cutils/properties.h>
 
 #include <fscrypt/fscrypt.h>
+#include <keyutils.h>
 #include <libdm/dm.h>
 
 #include <android-base/file.h>
@@ -73,6 +74,7 @@ using android::vold::retrieveOrGenerateKey;
 using android::vold::SetDefaultAcl;
 using android::vold::SetQuotaInherit;
 using android::vold::SetQuotaProjectId;
+using android::vold::writeStringToFile;
 using namespace android::fscrypt;
 using namespace android::dm;
 
@@ -628,6 +630,27 @@ bool fscrypt_create_user_keys(userid_t user_id, bool ephemeral) {
     return true;
 }
 
+// "Lock" all encrypted directories whose key has been removed.  This is needed
+// in the case where the keys are being put in the session keyring (rather in
+// the newer filesystem-level keyrings), because removing a key from the session
+// keyring doesn't affect inodes in the kernel's inode cache whose per-file key
+// was already set up.  So to remove the per-file keys and make the files
+// "appear encrypted", these inodes must be evicted.
+//
+// To do this, sync() to clean all dirty inodes, then drop all reclaimable slab
+// objects systemwide.  This is overkill, but it's the best available method
+// currently.  Don't use drop_caches mode "3" because that also evicts pagecache
+// for in-use files; all files relevant here are already closed and sync'ed.
+static void drop_caches_if_needed() {
+    if (android::vold::isFsKeyringSupported()) {
+        return;
+    }
+    sync();
+    if (!writeStringToFile("2", "/proc/sys/vm/drop_caches")) {
+        PLOG(ERROR) << "Failed to drop caches during key eviction";
+    }
+}
+
 // Evicts all the user's keys of one type from all volumes (internal and adoptable).
 // This evicts either CE keys or DE keys, depending on which map is passed.
 static bool evict_user_keys(std::map<userid_t, UserPolicies>& policy_map, userid_t user_id) {
@@ -640,6 +663,7 @@ static bool evict_user_keys(std::map<userid_t, UserPolicies>& policy_map, userid
             success &= android::vold::evictKey(BuildDataPath(volume_uuid), policy);
         }
         policy_map.erase(it);
+        drop_caches_if_needed();
     }
     return success;
 }
